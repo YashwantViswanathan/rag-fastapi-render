@@ -21,6 +21,10 @@ async function askQuestion() {
       body: JSON.stringify({ question })
     });
 
+    if (!response.ok) {
+      throw new Error("Backend error");
+    }
+
     const data = await response.json();
     answerBox.textContent = data.answer;
   } catch (err) {

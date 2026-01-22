@@ -19,7 +19,7 @@
       rows="4"
     ></textarea>
 
-    <button onclick="askQuestion()">Ask</button>
+    <button class="ask-btn" onclick="askQuestion()">Ask</button>
 
     <div id="loading" class="hidden">Thinking...</div>
 
@@ -27,14 +27,14 @@
       <div class="section-label">Generated Answer</div>
       <pre id="answer"></pre>
     </div>
+
+    <div class="download-section">
+      <button class="download-btn" onclick="downloadCSV()">
+        Download Q&amp;A Session
+      </button>
+    </div>
   </div>
-
-  <div class="download-section">
-  <button onclick="downloadCSV()">Download Q&A Session</button>
-</div>
-
 
   <script src="/static/app.js"></script>
 </body>
-
 </html>

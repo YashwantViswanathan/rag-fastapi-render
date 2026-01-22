@@ -1,0 +1,36 @@
+body {
+  font-family: Arial, sans-serif;
+  background: #0f172a;
+  color: #e5e7eb;
+}
+
+.container {
+  max-width: 800px;
+  margin: 60px auto;
+  padding: 20px;
+}
+
+textarea {
+  width: 100%;
+  padding: 12px;
+  font-size: 16px;
+  margin-bottom: 12px;
+}
+
+button {
+  padding: 10px 16px;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+#answer {
+  margin-top: 20px;
+  white-space: pre-wrap;
+  background: #020617;
+  padding: 15px;
+  border-radius: 6px;
+}
+
+.hidden {
+  display: none;
+}

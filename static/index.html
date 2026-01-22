@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>RAG Security Assistant</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="container">
+    <h1>RAG Security Assistant</h1>
+
+    <textarea
+      id="question"
+      placeholder="Ask a security-related question..."
+      rows="4"
+    ></textarea>
+
+    <button onclick="askQuestion()">Ask</button>
+
+    <div id="loading" class="hidden">Thinking...</div>
+    <pre id="answer"></pre>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

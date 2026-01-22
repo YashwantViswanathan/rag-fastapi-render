@@ -4,6 +4,10 @@ import csv
 import io
 from typing import List
 
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+
+
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -35,6 +39,9 @@ app = FastAPI(
     description="FastAPI-based Hybrid RAG using Azure OpenAI + Cosmos DB",
     version="1.0.0"
 )
+
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
 
 # --------------------------------------------------
 # Initialize clients (singleton)
@@ -241,5 +248,6 @@ def download_qa_csv():
     )
 
 @app.get("/")
-def health_check():
-    return {"status": "RAG FastAPI service is running"}
+def serve_ui():
+    return FileResponse("static/index.html")
+

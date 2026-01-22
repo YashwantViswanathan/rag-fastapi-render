@@ -16,6 +16,8 @@ from dotenv import load_dotenv
 from openai import AzureOpenAI
 from azure.cosmos import CosmosClient
 
+
+
 # --------------------------------------------------
 # Load environment variables
 # --------------------------------------------------

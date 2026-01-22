@@ -29,3 +29,7 @@ async function askQuestion() {
     loading.classList.add("hidden");
   }
 }
+
+function downloadCSV() {
+  window.location.href = "/download";
+}

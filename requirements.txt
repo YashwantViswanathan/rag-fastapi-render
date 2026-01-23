@@ -32,3 +32,4 @@ PyPDF2
 openpyxl
 pandas
 python-multipart
+python-docx

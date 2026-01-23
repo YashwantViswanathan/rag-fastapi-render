@@ -17,7 +17,7 @@ from azure.cosmos import CosmosClient
 import pandas as pd
 import PyPDF2
 from docx import Document
-from PyPDF2 import PDFReader
+from PyPDF2 import PdfReader
 
 # --------------------------------------------------
 # Load environment variables

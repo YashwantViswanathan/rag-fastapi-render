@@ -15,6 +15,7 @@ from azure.cosmos import CosmosClient
 
 import pandas as pd
 import PyPDF2
+from docx import Document
 
 # --------------------------------------------------
 # Load environment variables
@@ -153,6 +154,16 @@ def extract_questions(file: UploadFile) -> list[str]:
         for page in reader.pages:
             text += page.extract_text() or ""
         return [line.strip() for line in text.splitlines() if line.strip()]
+
+    elif filename.endswith(".docx"):
+        document = Document(file.file)
+        questions = [
+            para.text.strip()
+            for para in document.paragraphs
+            if para.text.strip()
+        ]
+        return questions
+
 
     else:
         raise ValueError("Unsupported file type")

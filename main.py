@@ -1,4 +1,4 @@
-import os
+\import os
 import re
 import csv
 import io
@@ -10,12 +10,14 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
+
 from openai import AzureOpenAI
 from azure.cosmos import CosmosClient
 
 import pandas as pd
 import PyPDF2
 from docx import Document
+from pypdf import PDFReader
 
 # --------------------------------------------------
 # Load environment variables

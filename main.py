@@ -4,19 +4,17 @@ import csv
 import io
 from typing import List
 
+from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
-
-
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
 from openai import AzureOpenAI
 from azure.cosmos import CosmosClient
 
-
+import pandas as pd
+import PyPDF2
 
 # --------------------------------------------------
 # Load environment variables
@@ -37,16 +35,14 @@ COSMOS_CONTAINER = os.getenv("COSMOS_CONTAINER")
 # Initialize FastAPI
 # --------------------------------------------------
 app = FastAPI(
-    title="Hybrid RAG InfoSec Assistant",
-    description="FastAPI-based Hybrid RAG using Azure OpenAI + Cosmos DB",
-    version="1.0.0"
+    title="Batch RAG InfoSec Assistant",
+    version="2.0.0"
 )
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-
 # --------------------------------------------------
-# Initialize clients (singleton)
+# Clients
 # --------------------------------------------------
 openai_client = AzureOpenAI(
     azure_endpoint=AZURE_OAI_ENDPOINT,
@@ -59,7 +55,7 @@ db = cosmos_client.get_database_client(COSMOS_DATABASE)
 container = db.get_container_client(COSMOS_CONTAINER)
 
 # --------------------------------------------------
-# In-memory Q&A store (per app instance)
+# In-memory Q&A store
 # --------------------------------------------------
 qa_pairs: List[dict] = []
 
@@ -67,189 +63,114 @@ qa_pairs: List[dict] = []
 # Helper functions
 # --------------------------------------------------
 def is_broad_question(question: str) -> bool:
-    q = question.lower()
-    broad_terms = [
-        "tell me about",
-        "overview",
-        "summary",
-        "all",
-        "entire",
-        "policies",
-        "explain"
-    ]
-    return any(term in q for term in broad_terms)
+    return any(
+        t in question.lower()
+        for t in ["overview", "summary", "explain", "all", "policies"]
+    )
 
 def extract_keywords(question: str):
     tokens = re.findall(r"\b[a-zA-Z]{4,}\b", question.lower())
-    stopwords = {
-        "tell", "about", "what", "which", "policy", "policies",
-        "explain", "overview", "summary", "describe"
-    }
-    return [t for t in tokens if t not in stopwords][:3]
+    return tokens[:3]
 
 def embed_query(text: str):
-    response = openai_client.embeddings.create(
+    return openai_client.embeddings.create(
         model=AZURE_OAI_EMBEDDING_DEPLOYMENT,
         input=text
-    )
-    return response.data[0].embedding
+    ).data[0].embedding
 
-def retrieve_chunks_hybrid(question: str, top_k: int):
+def retrieve_chunks(question: str, top_k: int):
     embedding = embed_query(question)
-    keywords = extract_keywords(question)
-
-    params = [
-        {"name": "@k", "value": top_k},
-        {"name": "@embedding", "value": embedding}
-    ]
-
-    where_clause = ""
-    if keywords:
-        conditions = []
-        for i, kw in enumerate(keywords):
-            pname = f"@kw{i}"
-            conditions.append(f"CONTAINS(c.content, {pname}, true)")
-            params.append({"name": pname, "value": kw})
-        where_clause = "WHERE " + " OR ".join(conditions)
-
-    query = f"""
+    query = """
     SELECT TOP @k c.content
     FROM c
-    {where_clause}
     ORDER BY VectorDistance(c.embedding, @embedding)
     """
-
-    results = list(container.query_items(
+    results = container.query_items(
         query=query,
-        parameters=params,
+        parameters=[
+            {"name": "@k", "value": top_k},
+            {"name": "@embedding", "value": embedding}
+        ],
         enable_cross_partition_query=True
-    ))
+    )
+    return [r["content"] for r in results]
 
-    # Fallback to pure vector search
-    if len(results) < max(3, top_k // 3):
-        query = """
-        SELECT TOP @k c.content
-        FROM c
-        ORDER BY VectorDistance(c.embedding, @embedding)
-        """
-        results = container.query_items(
-            query=query,
-            parameters=[
-                {"name": "@k", "value": top_k},
-                {"name": "@embedding", "value": embedding}
-            ],
-            enable_cross_partition_query=True
-        )
-
-    return [item["content"] for item in results]
-
-def build_specific_prompt(context_chunks, question):
-    context = "\n\n".join(context_chunks)
-    return [
-        {
-            "role": "system",
-            "content": (
-                "You are an enterprise information security assistant.\n"
-                "Answer ONLY using the provided context.\n"
-                "Be precise and policy-accurate.\n"
-                "If the answer is not present, say:\n"
-                "'I do not have sufficient information from the provided documents.'"
-            )
-        },
-        {
-            "role": "user",
-            "content": f"Context:\n{context}\n\nQuestion:\n{question}"
-        }
-    ]
-
-def build_overview_prompt(context_chunks, question):
-    context = "\n\n".join(context_chunks)
-    return [
-        {
-            "role": "system",
-            "content": (
-                "You are an enterprise information security analyst.\n"
-                "Summarize all policy areas found in the provided excerpts.\n"
-                "Base your response ONLY on the excerpts."
-            )
-        },
-        {
-            "role": "user",
-            "content": f"Policy excerpts:\n{context}\n\nRequest:\n{question}"
-        }
-    ]
-
-# --------------------------------------------------
-# Request / Response models
-# --------------------------------------------------
-class QuestionRequest(BaseModel):
-    question: str
-
-class AnswerResponse(BaseModel):
-    answer: str
-
-# --------------------------------------------------
-# API Endpoints
-# --------------------------------------------------
-@app.post("/ask", response_model=AnswerResponse)
-def ask_question(payload: QuestionRequest):
-    question = payload.question.strip()
-
-    if not question:
-        raise HTTPException(status_code=400, detail="Question cannot be empty")
-
+def run_rag(question: str) -> str:
     broad = is_broad_question(question)
-    top_k = 30 if broad else 10
-
-    chunks = retrieve_chunks_hybrid(question, top_k)
-
-    if broad and len(chunks) < 12:
-        chunks = retrieve_chunks_hybrid(question, 45)
+    chunks = retrieve_chunks(question, 30 if broad else 10)
 
     if not chunks:
-        answer = "I do not have sufficient information from the provided documents."
-    else:
-        messages = (
-            build_overview_prompt(chunks, question)
-            if broad
-            else build_specific_prompt(chunks, question)
-        )
+        return "I do not have sufficient information from the provided documents."
 
-        response = openai_client.chat.completions.create(
-            model=AZURE_OAI_DEPLOYMENT,
-            temperature=0.05,
-            max_tokens=900,
-            messages=messages
-        )
+    messages = [
+        {"role": "system", "content": "Answer strictly from the given context."},
+        {"role": "user", "content": f"Context:\n{chr(10).join(chunks)}\n\nQ: {question}"}
+    ]
 
-        answer = response.choices[0].message.content
+    response = openai_client.chat.completions.create(
+        model=AZURE_OAI_DEPLOYMENT,
+        messages=messages,
+        temperature=0.05,
+        max_tokens=700
+    )
 
-    qa_pairs.append({
-        "question": question,
-        "answer": answer
-    })
+    return response.choices[0].message.content
 
-    return {"answer": answer}
+# --------------------------------------------------
+# File parsing
+# --------------------------------------------------
+def extract_questions(file: UploadFile) -> List[str]:
+    ext = file.filename.split(".")[-1].lower()
+
+    if ext in ["csv", "xls", "xlsx"]:
+        df = pd.read_excel(file.file) if ext != "csv" else pd.read_csv(file.file)
+        return df.iloc[:, 0].dropna().astype(str).tolist()
+
+    if ext == "txt":
+        return file.file.read().decode("utf-8").splitlines()
+
+    if ext == "pdf":
+        reader = PyPDF2.PdfReader(file.file)
+        text = "\n".join(page.extract_text() for page in reader.pages if page.extract_text())
+        return [line.strip() for line in text.split("\n") if line.strip()]
+
+    raise HTTPException(status_code=400, detail="Unsupported file format")
+
+# --------------------------------------------------
+# API endpoints
+# --------------------------------------------------
+@app.post("/upload")
+def upload_questions(file: UploadFile = File(...)):
+    qa_pairs.clear()
+
+    questions = extract_questions(file)
+
+    if not questions:
+        raise HTTPException(status_code=400, detail="No questions found")
+
+    for q in questions:
+        answer = run_rag(q)
+        qa_pairs.append({"question": q, "answer": answer})
+
+    return {"processed": len(qa_pairs)}
 
 @app.get("/download")
-def download_qa_csv():
+def download_csv():
     if not qa_pairs:
-        raise HTTPException(status_code=404, detail="No Q&A data available")
+        raise HTTPException(status_code=404, detail="No data available")
 
     buffer = io.StringIO()
     writer = csv.DictWriter(buffer, fieldnames=["question", "answer"])
     writer.writeheader()
     writer.writerows(qa_pairs)
-
     buffer.seek(0)
 
     return StreamingResponse(
         buffer,
         media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=rag_question_answer_log.csv"}
+        headers={"Content-Disposition": "attachment; filename=batch_qna_output.csv"}
     )
 
 @app.get("/")
 def serve_ui():
     return FileResponse("static/index.html")
-

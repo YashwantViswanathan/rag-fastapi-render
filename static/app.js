@@ -1,37 +1,24 @@
-async function askQuestion() {
-  const questionBox = document.getElementById("question");
-  const answerBox = document.getElementById("answer");
-  const loading = document.getElementById("loading");
+async function uploadFile() {
+  const fileInput = document.getElementById("fileInput");
+  const status = document.getElementById("status");
 
-  const question = questionBox.value.trim();
-  if (!question) {
-    alert("Please enter a question");
+  if (!fileInput.files.length) {
+    alert("Please select a file");
     return;
   }
 
-  answerBox.textContent = "";
-  loading.classList.remove("hidden");
+  const formData = new FormData();
+  formData.append("file", fileInput.files[0]);
 
-  try {
-    const response = await fetch("/ask", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ question })
-    });
+  status.textContent = "Processing questions...";
 
-    if (!response.ok) {
-      throw new Error("Backend error");
-    }
+  const response = await fetch("/upload", {
+    method: "POST",
+    body: formData
+  });
 
-    const data = await response.json();
-    answerBox.textContent = data.answer;
-  } catch (err) {
-    answerBox.textContent = "Error contacting backend.";
-  } finally {
-    loading.classList.add("hidden");
-  }
+  const data = await response.json();
+  status.textContent = `Processed ${data.processed} questions.`;
 }
 
 function downloadCSV() {

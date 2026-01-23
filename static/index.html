@@ -1,38 +1,19 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8" />
-  <title>RAG Information Assistant</title>
-  <link rel="stylesheet" href="/static/style.css" />
+  <title>Batch RAG Assistant</title>
+  <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
   <div class="container">
-    <h1 class="title">RAG Information Assistant</h1>
+    <h1>Batch RAG Assistant</h1>
 
-    <label class="section-label" for="question">
-      Enter your question
-    </label>
+    <input type="file" id="fileInput" />
+    <button onclick="uploadFile()">Upload Question File</button>
 
-    <textarea
-      id="question"
-      placeholder="Ask your question..."
-      rows="4"
-    ></textarea>
+    <button class="download" onclick="downloadCSV()">Download Output CSV</button>
 
-    <button class="ask-btn" onclick="askQuestion()">Ask</button>
-
-    <div id="loading" class="hidden">Finding relevant answer...</div>
-
-    <div class="output-section">
-      <div class="section-label">Generated Answer</div>
-      <pre id="answer"></pre>
-    </div>
-
-    <div class="download-section">
-      <button class="download-btn" onclick="downloadCSV()">
-        Download Session Log
-      </button>
-    </div>
+    <p id="status"></p>
   </div>
 
   <script src="/static/app.js"></script>

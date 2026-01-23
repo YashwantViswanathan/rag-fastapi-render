@@ -143,16 +143,25 @@ def extract_questions(file: UploadFile) -> List[str]:
 def upload_questions(file: UploadFile = File(...)):
     qa_pairs.clear()
 
-    questions = extract_questions(file)
+    try:
+        questions = extract_questions(file)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to read file: {str(e)}")
 
     if not questions:
-        raise HTTPException(status_code=400, detail="No questions found")
+        raise HTTPException(status_code=400, detail="No questions found in file")
 
     for q in questions:
+        if not q.strip():
+            continue
         answer = run_rag(q)
         qa_pairs.append({"question": q, "answer": answer})
 
-    return {"processed": len(qa_pairs)}
+    return {
+        "processed": len(qa_pairs),
+        "status": "success"
+    }
+
 
 @app.get("/download")
 def download_csv():

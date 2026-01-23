@@ -12,13 +12,23 @@ async function uploadFile() {
 
   status.textContent = "Processing questions...";
 
-  const response = await fetch("/upload", {
-    method: "POST",
-    body: formData
-  });
+  try {
+    const response = await fetch("/upload", {
+      method: "POST",
+      body: formData
+    });
 
-  const data = await response.json();
-  status.textContent = `Processed ${data.processed} questions.`;
+    if (!response.ok) {
+      const err = await response.json();
+      throw new Error(err.detail || "Upload failed");
+    }
+
+    const data = await response.json();
+    status.textContent = `Processed ${data.processed} questions successfully.`;
+
+  } catch (error) {
+    status.textContent = `Error: ${error.message}`;
+  }
 }
 
 function downloadCSV() {

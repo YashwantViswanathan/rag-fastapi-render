@@ -116,25 +116,47 @@ def run_rag(question: str) -> str:
 
     return response.choices[0].message.content
 
+def extract_from_dataframe(df: pd.DataFrame) -> list[str]:
+    # Flatten all columns into a single list
+    questions = []
+
+    for col in df.columns:
+        col_data = df[col].dropna().astype(str).tolist()
+        questions.extend(col_data)
+
+    # Clean & deduplicate
+    questions = [q.strip() for q in questions if q.strip()]
+    return questions
+
+
 # --------------------------------------------------
 # File parsing
 # --------------------------------------------------
-def extract_questions(file: UploadFile) -> List[str]:
-    ext = file.filename.split(".")[-1].lower()
+def extract_questions(file: UploadFile) -> list[str]:
+    filename = file.filename.lower()
 
-    if ext in ["csv", "xls", "xlsx"]:
-        df = pd.read_excel(file.file) if ext != "csv" else pd.read_csv(file.file)
-        return df.iloc[:, 0].dropna().astype(str).tolist()
+    if filename.endswith(".csv"):
+        df = pd.read_csv(file.file)
+        return extract_from_dataframe(df)
 
-    if ext == "txt":
-        return file.file.read().decode("utf-8").splitlines()
+    elif filename.endswith(".xlsx") or filename.endswith(".xls"):
+        df = pd.read_excel(file.file)
+        return extract_from_dataframe(df)
 
-    if ext == "pdf":
-        reader = PyPDF2.PdfReader(file.file)
-        text = "\n".join(page.extract_text() for page in reader.pages if page.extract_text())
-        return [line.strip() for line in text.split("\n") if line.strip()]
+    elif filename.endswith(".txt"):
+        content = file.file.read().decode("utf-8")
+        return [line.strip() for line in content.splitlines() if line.strip()]
 
-    raise HTTPException(status_code=400, detail="Unsupported file format")
+    elif filename.endswith(".pdf"):
+        reader = PdfReader(file.file)
+        text = ""
+        for page in reader.pages:
+            text += page.extract_text() or ""
+        return [line.strip() for line in text.splitlines() if line.strip()]
+
+    else:
+        raise ValueError("Unsupported file type")
+
 
 # --------------------------------------------------
 # API endpoints

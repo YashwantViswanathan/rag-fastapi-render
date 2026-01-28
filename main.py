@@ -7,17 +7,14 @@ from typing import List
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
 from dotenv import load_dotenv
-
 
 from openai import AzureOpenAI
 from azure.cosmos import CosmosClient
 
 import pandas as pd
-import PyPDF2
-from docx import Document
 from PyPDF2 import PdfReader
+from docx import Document
 
 # --------------------------------------------------
 # Load environment variables
@@ -34,12 +31,14 @@ COSMOS_KEY = os.getenv("COSMOS_KEY")
 COSMOS_DATABASE = os.getenv("COSMOS_DATABASE")
 COSMOS_CONTAINER = os.getenv("COSMOS_CONTAINER")
 
+KNOWLEDGE_FILE = os.getenv("KNOWLEDGE_FILE")  # e.g. Godrej_Security_Policy.docx
+
 # --------------------------------------------------
 # Initialize FastAPI
 # --------------------------------------------------
 app = FastAPI(
     title="Batch RAG InfoSec Assistant",
-    version="2.0.0"
+    version="2.1.0"
 )
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -63,7 +62,75 @@ container = db.get_container_client(COSMOS_CONTAINER)
 qa_pairs: List[dict] = []
 
 # --------------------------------------------------
-# Helper functions
+# ----------- KNOWLEDGE INGESTION ------------------
+# --------------------------------------------------
+def load_knowledge_document(path: str) -> str:
+    path = path.lower()
+
+    if path.endswith(".pdf"):
+        reader = PdfReader(path)
+        return "\n".join(
+            page.extract_text() or "" for page in reader.pages
+        )
+
+    elif path.endswith(".docx"):
+        doc = Document(path)
+        return "\n".join(p.text for p in doc.paragraphs if p.text.strip())
+
+    elif path.endswith(".txt"):
+        with open(path, "r", encoding="utf-8") as f:
+            return f.read()
+
+    elif path.endswith(".csv"):
+        df = pd.read_csv(path)
+        return "\n".join(df.astype(str).fillna("").values.flatten())
+
+    elif path.endswith(".xlsx") or path.endswith(".xls"):
+        df = pd.read_excel(path)
+        return "\n".join(df.astype(str).fillna("").values.flatten())
+
+    else:
+        raise ValueError("Unsupported knowledge document format")
+
+def chunk_text(text: str, chunk_size=800, overlap=100):
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = start + chunk_size
+        chunks.append(text[start:end])
+        start = end - overlap
+    return chunks
+
+def embed_text(text: str):
+    return openai_client.embeddings.create(
+        model=AZURE_OAI_EMBEDDING_DEPLOYMENT,
+        input=text
+    ).data[0].embedding
+
+def ingest_knowledge_document():
+    if not KNOWLEDGE_FILE:
+        print("No KNOWLEDGE_FILE set. Skipping ingestion.")
+        return
+
+    print(f"Ingesting knowledge document: {KNOWLEDGE_FILE}")
+    text = load_knowledge_document(KNOWLEDGE_FILE)
+    chunks = chunk_text(text)
+
+    for chunk in chunks:
+        embedding = embed_text(chunk)
+        container.upsert_item({
+            "id": str(abs(hash(chunk))),
+            "content": chunk,
+            "embedding": embedding
+        })
+
+    print(f"Ingested {len(chunks)} chunks into Cosmos DB.")
+
+# Run ingestion ONCE at startup
+ingest_knowledge_document()
+
+# --------------------------------------------------
+# ----------- RAG QUERY PIPELINE -------------------
 # --------------------------------------------------
 def is_broad_question(question: str) -> bool:
     return any(
@@ -71,15 +138,8 @@ def is_broad_question(question: str) -> bool:
         for t in ["overview", "summary", "explain", "all", "policies"]
     )
 
-def extract_keywords(question: str):
-    tokens = re.findall(r"\b[a-zA-Z]{4,}\b", question.lower())
-    return tokens[:3]
-
 def embed_query(text: str):
-    return openai_client.embeddings.create(
-        model=AZURE_OAI_EMBEDDING_DEPLOYMENT,
-        input=text
-    ).data[0].embedding
+    return embed_text(text)
 
 def retrieve_chunks(question: str, top_k: int):
     embedding = embed_query(question)
@@ -106,8 +166,14 @@ def run_rag(question: str) -> str:
         return "I do not have sufficient information from the provided documents."
 
     messages = [
-        {"role": "system", "content": "Answer strictly from the given context."},
-        {"role": "user", "content": f"Context:\n{chr(10).join(chunks)}\n\nQ: {question}"}
+        {
+            "role": "system",
+            "content": "Answer strictly using the provided context."
+        },
+        {
+            "role": "user",
+            "content": f"Context:\n{chr(10).join(chunks)}\n\nQuestion:\n{question}"
+        }
     ]
 
     response = openai_client.chat.completions.create(
@@ -119,60 +185,40 @@ def run_rag(question: str) -> str:
 
     return response.choices[0].message.content
 
+# --------------------------------------------------
+# ----------- QUESTION FILE PARSING ----------------
+# --------------------------------------------------
 def extract_from_dataframe(df: pd.DataFrame) -> list[str]:
-    # Flatten all columns into a single list
     questions = []
-
     for col in df.columns:
-        col_data = df[col].dropna().astype(str).tolist()
-        questions.extend(col_data)
+        questions.extend(df[col].dropna().astype(str).tolist())
+    return [q.strip() for q in questions if q.strip()]
 
-    # Clean & deduplicate
-    questions = [q.strip() for q in questions if q.strip()]
-    return questions
-
-
-# --------------------------------------------------
-# File parsing
-# --------------------------------------------------
 def extract_questions(file: UploadFile) -> list[str]:
-    filename = file.filename.lower()
+    name = file.filename.lower()
 
-    if filename.endswith(".csv"):
-        df = pd.read_csv(file.file)
-        return extract_from_dataframe(df)
+    if name.endswith(".csv"):
+        return extract_from_dataframe(pd.read_csv(file.file))
 
-    elif filename.endswith(".xlsx") or filename.endswith(".xls"):
-        df = pd.read_excel(file.file)
-        return extract_from_dataframe(df)
+    if name.endswith(".xlsx") or name.endswith(".xls"):
+        return extract_from_dataframe(pd.read_excel(file.file))
 
-    elif filename.endswith(".txt"):
-        content = file.file.read().decode("utf-8")
-        return [line.strip() for line in content.splitlines() if line.strip()]
+    if name.endswith(".txt"):
+        return [l.strip() for l in file.file.read().decode("utf-8").splitlines() if l.strip()]
 
-    elif filename.endswith(".pdf"):
+    if name.endswith(".pdf"):
         reader = PdfReader(file.file)
-        text = ""
-        for page in reader.pages:
-            text += page.extract_text() or ""
-        return [line.strip() for line in text.splitlines() if line.strip()]
+        text = "".join(p.extract_text() or "" for p in reader.pages)
+        return [l.strip() for l in text.splitlines() if l.strip()]
 
-    elif filename.endswith(".docx"):
-        document = Document(file.file)
-        questions = [
-            para.text.strip()
-            for para in document.paragraphs
-            if para.text.strip()
-        ]
-        return questions
+    if name.endswith(".docx"):
+        doc = Document(file.file)
+        return [p.text.strip() for p in doc.paragraphs if p.text.strip()]
 
-
-    else:
-        raise ValueError("Unsupported file type")
-
+    raise ValueError("Unsupported file type")
 
 # --------------------------------------------------
-# API endpoints
+# ---------------- API ENDPOINTS -------------------
 # --------------------------------------------------
 @app.post("/upload")
 def upload_questions(file: UploadFile = File(...)):
@@ -187,16 +233,10 @@ def upload_questions(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="No questions found in file")
 
     for q in questions:
-        if not q.strip():
-            continue
         answer = run_rag(q)
         qa_pairs.append({"question": q, "answer": answer})
 
-    return {
-        "processed": len(qa_pairs),
-        "status": "success"
-    }
-
+    return {"processed": len(qa_pairs)}
 
 @app.get("/download")
 def download_csv():

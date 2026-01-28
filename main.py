@@ -138,6 +138,40 @@ def is_broad_question(question: str) -> bool:
         for t in ["overview", "summary", "explain", "all", "policies"]
     )
 
+import unicodedata
+
+def clean_generated_text(text: str) -> str:
+    if not text:
+        return text
+
+    # Common encoding artifact replacements
+    replacements = {
+        "â€™": "'",
+        "â€œ": '"',
+        "â€�": '"',
+        "â€“": "-",
+        "â€”": "-",
+        "â€˜": "'",
+        "â€¢": "•",
+        "â€¦": "...",
+        "Â": "",
+    }
+
+    for bad, good in replacements.items():
+        text = text.replace(bad, good)
+
+    # Normalize unicode (fix hidden characters)
+    text = unicodedata.normalize("NFKC", text)
+
+    # Remove excessive line breaks
+    text = re.sub(r"\n{3,}", "\n\n", text)
+
+    # Remove trailing spaces per line
+    text = "\n".join(line.rstrip() for line in text.splitlines())
+
+    return text.strip()
+
+
 def embed_query(text: str):
     return embed_text(text)
 
@@ -183,7 +217,11 @@ def run_rag(question: str) -> str:
         max_tokens=700
     )
 
-    return response.choices[0].message.content
+    raw_answer = response.choices[0].message.content
+    return clean_generated_text(raw_answer)
+
+
+
 
 # --------------------------------------------------
 # ----------- QUESTION FILE PARSING ----------------

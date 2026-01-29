@@ -15,6 +15,7 @@ from azure.cosmos import CosmosClient
 import pandas as pd
 from PyPDF2 import PdfReader
 from docx import Document
+import unicodedata
 
 # --------------------------------------------------
 # Load environment variables
@@ -31,14 +32,12 @@ COSMOS_KEY = os.getenv("COSMOS_KEY")
 COSMOS_DATABASE = os.getenv("COSMOS_DATABASE")
 COSMOS_CONTAINER = os.getenv("COSMOS_CONTAINER")
 
-KNOWLEDGE_FILE = os.getenv("KNOWLEDGE_FILE")  # e.g. Godrej_Security_Policy.docx
-
 # --------------------------------------------------
 # Initialize FastAPI
 # --------------------------------------------------
 app = FastAPI(
     title="Batch RAG InfoSec Assistant",
-    version="2.1.0"
+    version="2.2.0"
 )
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -53,6 +52,7 @@ openai_client = AzureOpenAI(
 )
 
 cosmos_client = CosmosClient(COSMOS_ENDPOINT, COSMOS_KEY)
+
 db = cosmos_client.get_database_client(COSMOS_DATABASE)
 container = db.get_container_client(COSMOS_CONTAINER)
 
@@ -62,89 +62,12 @@ container = db.get_container_client(COSMOS_CONTAINER)
 qa_pairs: List[dict] = []
 
 # --------------------------------------------------
-# ----------- KNOWLEDGE INGESTION ------------------
+# ----------------- UTILITIES ----------------------
 # --------------------------------------------------
-def load_knowledge_document(path: str) -> str:
-    path = path.lower()
-
-    if path.endswith(".pdf"):
-        reader = PdfReader(path)
-        return "\n".join(
-            page.extract_text() or "" for page in reader.pages
-        )
-
-    elif path.endswith(".docx"):
-        doc = Document(path)
-        return "\n".join(p.text for p in doc.paragraphs if p.text.strip())
-
-    elif path.endswith(".txt"):
-        with open(path, "r", encoding="utf-8") as f:
-            return f.read()
-
-    elif path.endswith(".csv"):
-        df = pd.read_csv(path)
-        return "\n".join(df.astype(str).fillna("").values.flatten())
-
-    elif path.endswith(".xlsx") or path.endswith(".xls"):
-        df = pd.read_excel(path)
-        return "\n".join(df.astype(str).fillna("").values.flatten())
-
-    else:
-        raise ValueError("Unsupported knowledge document format")
-
-def chunk_text(text: str, chunk_size=800, overlap=100):
-    chunks = []
-    start = 0
-    while start < len(text):
-        end = start + chunk_size
-        chunks.append(text[start:end])
-        start = end - overlap
-    return chunks
-
-def embed_text(text: str):
-    return openai_client.embeddings.create(
-        model=AZURE_OAI_EMBEDDING_DEPLOYMENT,
-        input=text
-    ).data[0].embedding
-
-def ingest_knowledge_document():
-    if not KNOWLEDGE_FILE:
-        print("No KNOWLEDGE_FILE set. Skipping ingestion.")
-        return
-
-    print(f"Ingesting knowledge document: {KNOWLEDGE_FILE}")
-    text = load_knowledge_document(KNOWLEDGE_FILE)
-    chunks = chunk_text(text)
-
-    for chunk in chunks:
-        embedding = embed_text(chunk)
-        container.upsert_item({
-            "id": str(abs(hash(chunk))),
-            "content": chunk,
-            "embedding": embedding
-        })
-
-    print(f"Ingested {len(chunks)} chunks into Cosmos DB.")
-
-# Run ingestion ONCE at startup
-ingest_knowledge_document()
-
-# --------------------------------------------------
-# ----------- RAG QUERY PIPELINE -------------------
-# --------------------------------------------------
-def is_broad_question(question: str) -> bool:
-    return any(
-        t in question.lower()
-        for t in ["overview", "summary", "explain", "all", "policies"]
-    )
-
-import unicodedata
-
 def clean_generated_text(text: str) -> str:
     if not text:
         return text
 
-    # Common encoding artifact replacements
     replacements = {
         "â€™": "'",
         "â€œ": '"',
@@ -160,36 +83,45 @@ def clean_generated_text(text: str) -> str:
     for bad, good in replacements.items():
         text = text.replace(bad, good)
 
-    # Normalize unicode (fix hidden characters)
     text = unicodedata.normalize("NFKC", text)
-
-    # Remove excessive line breaks
     text = re.sub(r"\n{3,}", "\n\n", text)
-
-    # Remove trailing spaces per line
     text = "\n".join(line.rstrip() for line in text.splitlines())
 
     return text.strip()
 
+def embed_text(text: str):
+    return openai_client.embeddings.create(
+        model=AZURE_OAI_EMBEDDING_DEPLOYMENT,
+        input=text
+    ).data[0].embedding
 
-def embed_query(text: str):
-    return embed_text(text)
+def is_broad_question(question: str) -> bool:
+    return any(
+        t in question.lower()
+        for t in ["overview", "summary", "explain", "all", "policies"]
+    )
 
+# --------------------------------------------------
+# ---------------- COSMOS RETRIEVAL ----------------
+# --------------------------------------------------
 def retrieve_chunks(question: str, top_k: int):
-    embedding = embed_query(question)
+    query_embedding = embed_text(question)
+
     query = """
     SELECT TOP @k c.content
     FROM c
     ORDER BY VectorDistance(c.embedding, @embedding)
     """
+
     results = container.query_items(
         query=query,
         parameters=[
             {"name": "@k", "value": top_k},
-            {"name": "@embedding", "value": embedding}
+            {"name": "@embedding", "value": query_embedding}
         ],
         enable_cross_partition_query=True
     )
+
     return [r["content"] for r in results]
 
 def run_rag(question: str) -> str:
@@ -202,7 +134,7 @@ def run_rag(question: str) -> str:
     messages = [
         {
             "role": "system",
-            "content": "Answer strictly using the provided context."
+            "content": "Answer strictly using the provided context. Do not add external knowledge."
         },
         {
             "role": "user",
@@ -217,11 +149,7 @@ def run_rag(question: str) -> str:
         max_tokens=700
     )
 
-    raw_answer = response.choices[0].message.content
-    return clean_generated_text(raw_answer)
-
-
-
+    return clean_generated_text(response.choices[0].message.content)
 
 # --------------------------------------------------
 # ----------- QUESTION FILE PARSING ----------------

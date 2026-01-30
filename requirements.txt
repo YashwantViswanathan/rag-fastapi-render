@@ -33,3 +33,7 @@ openpyxl
 pandas
 python-multipart
 python-docx
+numpy
+scikit-learn
+rouge-score
+sacrebleu

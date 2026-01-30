@@ -137,28 +137,31 @@ def run_rag(question: str):
 # File parsing
 # --------------------------------------------------
 def extract_questions(file_path: str) -> List[str]:
+    
     if file_path.endswith(".csv"):
         df = pd.read_csv(file_path)
-        return df.iloc[:, 0].dropna().astype(str).tolist()
-
-    if file_path.endswith(".xlsx") or file_path.endswith(".xls"):
+    elif file_path.endswith(".xlsx") or file_path.endswith(".xls"):
         df = pd.read_excel(file_path)
-        return df.iloc[:, 0].dropna().astype(str).tolist()
-
-    if file_path.endswith(".txt"):
+    elif file_path.endswith(".txt"):
         with open(file_path, "r", encoding="utf-8") as f:
             return [l.strip() for l in f if l.strip()]
-
-    if file_path.endswith(".pdf"):
+    elif file_path.endswith(".pdf"):
         reader = PdfReader(file_path)
         text = "".join(p.extract_text() or "" for p in reader.pages)
         return [l.strip() for l in text.splitlines() if l.strip()]
-
-    if file_path.endswith(".docx"):
+    elif file_path.endswith(".docx"):
         doc = Document(file_path)
         return [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+    else:
+        raise ValueError("Unsupported file type")
 
-    raise ValueError("Unsupported file type")
+    # 🔑 KEY FIX: extract from ALL columns
+    questions = []
+    for col in df.columns:
+        questions.extend(df[col].dropna().astype(str).tolist())
+
+    return [q.strip() for q in questions if q.strip()]
+
 
 # --------------------------------------------------
 # Gradio logic

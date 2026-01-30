@@ -1,5 +1,4 @@
 import os
-import csv
 import tempfile
 from typing import List
 
@@ -95,49 +94,41 @@ def compute_confidence_score(answer: str, true_answer: str):
 
     if score >= 85:
         label = "High"
+        color = "yellow"
     elif score >= 65:
         label = "Medium"
+        color = "orange"
     else:
         label = "Low"
+        color = "red"
 
-    return score, label
+    return score, label, color
 
 def run_rag(question: str):
     chunks = retrieve_chunks(question)
 
     if not chunks:
-        return "No relevant knowledge found.", 0.0, "Low"
+        return "No relevant knowledge found.", 0.0, "Low", "red"
 
     true_answer = chunks[0]
 
-    messages = [
-        {
-            "role": "system",
-            "content": "Answer strictly using the provided context."
-        },
-        {
-            "role": "user",
-            "content": f"Context:\n{true_answer}\n\nQuestion:\n{question}"
-        }
-    ]
-
     response = openai_client.chat.completions.create(
         model=AZURE_OAI_DEPLOYMENT,
-        messages=messages,
+        messages=[
+            {"role": "system", "content": "Answer strictly using the provided context."},
+            {"role": "user", "content": f"Context:\n{true_answer}\n\nQuestion:\n{question}"}
+        ],
         temperature=0.05,
         max_tokens=600
     )
 
     answer = response.choices[0].message.content.strip()
-    score, label = compute_confidence_score(answer, true_answer)
-
-    return answer, score, label
+    return (*compute_confidence_score(answer, true_answer), answer)
 
 # --------------------------------------------------
 # File parsing
 # --------------------------------------------------
 def extract_questions(file_path: str) -> List[str]:
-    
     if file_path.endswith(".csv"):
         df = pd.read_csv(file_path)
     elif file_path.endswith(".xlsx") or file_path.endswith(".xls"):
@@ -155,40 +146,68 @@ def extract_questions(file_path: str) -> List[str]:
     else:
         raise ValueError("Unsupported file type")
 
-    # 🔑 KEY FIX: extract from ALL columns
     questions = []
     for col in df.columns:
         questions.extend(df[col].dropna().astype(str).tolist())
 
     return [q.strip() for q in questions if q.strip()]
 
-
 # --------------------------------------------------
-# Gradio logic
+# Gradio processing
 # --------------------------------------------------
 def process_file(file):
     questions = extract_questions(file.name)
 
+    if not questions:
+        raise gr.Error("No questions found in the uploaded file.")
+
     rows = []
     for q in questions:
-        answer, score, label = run_rag(q)
-        rows.append([q, answer, score, label])
+        score, label, color, answer = run_rag(q)
+        rows.append([
+            q,
+            answer,
+            f"<span style='color:{color}; font-weight:bold'>{score}</span>",
+            f"<span style='color:{color}; font-weight:bold'>{label}</span>"
+        ])
 
     df = pd.DataFrame(
         rows,
         columns=["Question", "Answer", "Confidence Score", "Label"]
     )
 
-    # Save CSV for download
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".csv")
-    df.to_csv(tmp.name, index=False)
+    output_path = os.path.join(tempfile.gettempdir(), "Generated_Responses.csv")
+    df.to_csv(output_path, index=False)
 
-    return df, tmp.name
+    return df, output_path
+
+# --------------------------------------------------
+# Custom CSS (Blue–Black theme)
+# --------------------------------------------------
+custom_css = """
+body {
+    background: linear-gradient(135deg, #0a1f44, #000000);
+}
+
+.gradio-container {
+    background: transparent !important;
+}
+
+.block {
+    background: #000000 !important;
+    border-radius: 10px;
+    padding: 12px;
+}
+
+table {
+    background: #000000 !important;
+}
+"""
 
 # --------------------------------------------------
 # Gradio UI
 # --------------------------------------------------
-with gr.Blocks(title="Response Generation AI Agent") as demo:
+with gr.Blocks(css=custom_css, title="Response Generation AI Agent") as demo:
     gr.Markdown("## Response Generation AI Agent")
     gr.Markdown("### Trial Version 3")
 
@@ -198,6 +217,7 @@ with gr.Blocks(title="Response Generation AI Agent") as demo:
 
     output_table = gr.Dataframe(
         headers=["Question", "Answer", "Confidence Score", "Label"],
+        datatype=["str", "str", "html", "html"],
         wrap=True
     )
 
@@ -209,4 +229,7 @@ with gr.Blocks(title="Response Generation AI Agent") as demo:
         outputs=[output_table, csv_output]
     )
 
-demo.launch(server_name="0.0.0.0", server_port=7860)
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 7860))
+    demo.queue()
+    demo.launch(server_name="0.0.0.0", server_port=port)

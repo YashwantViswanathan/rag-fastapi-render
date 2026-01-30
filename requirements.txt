@@ -37,3 +37,4 @@ numpy
 scikit-learn
 rouge-score
 sacrebleu
+gradio

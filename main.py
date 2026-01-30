@@ -1,22 +1,18 @@
 import os
-import re
 import csv
-import io
+import tempfile
 from typing import List
 
-from fastapi import FastAPI, HTTPException, UploadFile, File
-from fastapi.responses import StreamingResponse, FileResponse
-from fastapi.staticfiles import StaticFiles
-from dotenv import load_dotenv
+import gradio as gr
+import pandas as pd
+import numpy as np
 
+from dotenv import load_dotenv
 from openai import AzureOpenAI
 from azure.cosmos import CosmosClient
 
-import pandas as pd
 from PyPDF2 import PdfReader
 from docx import Document
-import unicodedata
-import numpy as np
 
 from rouge_score import rouge_scorer
 from sacrebleu import sentence_bleu
@@ -38,16 +34,6 @@ COSMOS_DATABASE = os.getenv("COSMOS_DATABASE")
 COSMOS_CONTAINER = os.getenv("COSMOS_CONTAINER")
 
 # --------------------------------------------------
-# Initialize FastAPI
-# --------------------------------------------------
-app = FastAPI(
-    title="Batch RAG InfoSec Assistant",
-    version="2.4.0"
-)
-
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
-# --------------------------------------------------
 # Clients
 # --------------------------------------------------
 openai_client = AzureOpenAI(
@@ -61,54 +47,15 @@ db = cosmos_client.get_database_client(COSMOS_DATABASE)
 container = db.get_container_client(COSMOS_CONTAINER)
 
 # --------------------------------------------------
-# In-memory Q&A store
+# Utility functions
 # --------------------------------------------------
-qa_pairs: List[dict] = []
-
-# --------------------------------------------------
-# ----------------- UTILITIES ----------------------
-# --------------------------------------------------
-def clean_generated_text(text: str) -> str:
-    if not text:
-        return text
-
-    replacements = {
-        "â€™": "'",
-        "â€œ": '"',
-        "â€�": '"',
-        "â€“": "-",
-        "â€”": "-",
-        "â€˜": "'",
-        "â€¢": "•",
-        "â€¦": "...",
-        "Â": "",
-    }
-
-    for bad, good in replacements.items():
-        text = text.replace(bad, good)
-
-    text = unicodedata.normalize("NFKC", text)
-    text = re.sub(r"\n{3,}", "\n\n", text)
-    text = "\n".join(line.rstrip() for line in text.splitlines())
-
-    return text.strip()
-
 def embed_text(text: str):
     return openai_client.embeddings.create(
         model=AZURE_OAI_EMBEDDING_DEPLOYMENT,
         input=text
     ).data[0].embedding
 
-def is_broad_question(question: str) -> bool:
-    return any(
-        t in question.lower()
-        for t in ["overview", "summary", "explain", "all", "policies"]
-    )
-
-# --------------------------------------------------
-# ---------------- COSMOS RETRIEVAL ----------------
-# --------------------------------------------------
-def retrieve_chunks(question: str, top_k: int):
+def retrieve_chunks(question: str, top_k: int = 5) -> List[str]:
     query_embedding = embed_text(question)
 
     query = """
@@ -128,63 +75,49 @@ def retrieve_chunks(question: str, top_k: int):
 
     return [r["content"] for r in results]
 
-# --------------------------------------------------
-# -------- CONFIDENCE SCORE (TOP-1 REFERENCE) -------
-# --------------------------------------------------
-def compute_confidence_score(answer: str, true_answer: str) -> tuple[float, str]:
-    # Semantic similarity
+def compute_confidence_score(answer: str, true_answer: str):
     ans_emb = np.array(embed_text(answer)).reshape(1, -1)
     ref_emb = np.array(embed_text(true_answer)).reshape(1, -1)
     semantic_sim = cosine_similarity(ans_emb, ref_emb)[0][0]
 
-    # ROUGE-L
     rouge = rouge_scorer.RougeScorer(["rougeL"], use_stemmer=True)
     rouge_l = rouge.score(true_answer, answer)["rougeL"].fmeasure
 
-    # BLEU
     bleu = sentence_bleu(answer, [true_answer]).score / 100.0
 
-    final_score = (
+    score = (
         0.65 * semantic_sim +
         0.25 * rouge_l +
         0.10 * bleu
     ) * 100
 
-    final_score = round(min(max(final_score, 0), 100), 2)
+    score = round(score, 2)
 
-    if final_score >= 80:
+    if score >= 85:
         label = "High"
-    elif final_score >= 60:
+    elif score >= 65:
         label = "Medium"
     else:
         label = "Low"
 
-    return final_score, label
+    return score, label
 
-# --------------------------------------------------
-# ------------------- RAG PIPE ---------------------
-# --------------------------------------------------
 def run_rag(question: str):
-    broad = is_broad_question(question)
-    chunks = retrieve_chunks(question, 30 if broad else 5)
+    chunks = retrieve_chunks(question)
 
     if not chunks:
-        return {
-            "answer": "I do not have sufficient information from the provided documents.",
-            "confidence_score": 0.0,
-            "confidence_label": "Low"
-        }
+        return "No relevant knowledge found.", 0.0, "Low"
 
-    true_answer = chunks[0]  # most relevant KB answer
+    true_answer = chunks[0]
 
     messages = [
         {
             "role": "system",
-            "content": "Answer strictly using the provided context. Do not add external knowledge."
+            "content": "Answer strictly using the provided context."
         },
         {
             "role": "user",
-            "content": f"Context:\n{chr(10).join(chunks)}\n\nQuestion:\n{question}"
+            "content": f"Context:\n{true_answer}\n\nQuestion:\n{question}"
         }
     ]
 
@@ -192,100 +125,85 @@ def run_rag(question: str):
         model=AZURE_OAI_DEPLOYMENT,
         messages=messages,
         temperature=0.05,
-        max_tokens=700
+        max_tokens=600
     )
 
-    answer = clean_generated_text(response.choices[0].message.content)
+    answer = response.choices[0].message.content.strip()
     score, label = compute_confidence_score(answer, true_answer)
 
-    return {
-        "answer": answer,
-        "confidence_score": score,
-        "confidence_label": label
-    }
+    return answer, score, label
 
 # --------------------------------------------------
-# ----------- QUESTION FILE PARSING ----------------
+# File parsing
 # --------------------------------------------------
-def extract_from_dataframe(df: pd.DataFrame) -> list[str]:
-    questions = []
-    for col in df.columns:
-        questions.extend(df[col].dropna().astype(str).tolist())
-    return [q.strip() for q in questions if q.strip()]
+def extract_questions(file_path: str) -> List[str]:
+    if file_path.endswith(".csv"):
+        df = pd.read_csv(file_path)
+        return df.iloc[:, 0].dropna().astype(str).tolist()
 
-def extract_questions(file: UploadFile) -> list[str]:
-    name = file.filename.lower()
+    if file_path.endswith(".xlsx") or file_path.endswith(".xls"):
+        df = pd.read_excel(file_path)
+        return df.iloc[:, 0].dropna().astype(str).tolist()
 
-    if name.endswith(".csv"):
-        return extract_from_dataframe(pd.read_csv(file.file))
+    if file_path.endswith(".txt"):
+        with open(file_path, "r", encoding="utf-8") as f:
+            return [l.strip() for l in f if l.strip()]
 
-    if name.endswith(".xlsx") or name.endswith(".xls"):
-        return extract_from_dataframe(pd.read_excel(file.file))
-
-    if name.endswith(".txt"):
-        return [l.strip() for l in file.file.read().decode("utf-8").splitlines() if l.strip()]
-
-    if name.endswith(".pdf"):
-        reader = PdfReader(file.file)
+    if file_path.endswith(".pdf"):
+        reader = PdfReader(file_path)
         text = "".join(p.extract_text() or "" for p in reader.pages)
         return [l.strip() for l in text.splitlines() if l.strip()]
 
-    if name.endswith(".docx"):
-        doc = Document(file.file)
+    if file_path.endswith(".docx"):
+        doc = Document(file_path)
         return [p.text.strip() for p in doc.paragraphs if p.text.strip()]
 
     raise ValueError("Unsupported file type")
 
 # --------------------------------------------------
-# ---------------- API ENDPOINTS -------------------
+# Gradio logic
 # --------------------------------------------------
-@app.post("/upload")
-def upload_questions(file: UploadFile = File(...)):
-    qa_pairs.clear()
+def process_file(file):
+    questions = extract_questions(file.name)
 
-    try:
-        questions = extract_questions(file)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to read file: {str(e)}")
-
-    if not questions:
-        raise HTTPException(status_code=400, detail="No questions found in file")
-
+    rows = []
     for q in questions:
-        result = run_rag(q)
-        qa_pairs.append({
-            "question": q,
-            "answer": result["answer"],
-            "confidence_score": result["confidence_score"],
-            "confidence_label": result["confidence_label"]
-        })
+        answer, score, label = run_rag(q)
+        rows.append([q, answer, score, label])
 
-    return {
-        "processed": len(qa_pairs),
-        "results": qa_pairs
-    }
-
-
-@app.get("/download")
-def download_csv():
-    if not qa_pairs:
-        raise HTTPException(status_code=404, detail="No data available")
-
-    buffer = io.StringIO()
-    writer = csv.DictWriter(
-        buffer,
-        fieldnames=["question", "answer", "confidence_score", "confidence_label"]
-    )
-    writer.writeheader()
-    writer.writerows(qa_pairs)
-    buffer.seek(0)
-
-    return StreamingResponse(
-        buffer,
-        media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=batch_qna_output.csv"}
+    df = pd.DataFrame(
+        rows,
+        columns=["Question", "Answer", "Confidence Score", "Label"]
     )
 
-@app.get("/")
-def serve_ui():
-    return FileResponse("static/index.html")
+    # Save CSV for download
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".csv")
+    df.to_csv(tmp.name, index=False)
+
+    return df, tmp.name
+
+# --------------------------------------------------
+# Gradio UI
+# --------------------------------------------------
+with gr.Blocks(title="Response Generation AI Agent") as demo:
+    gr.Markdown("## Response Generation AI Agent")
+    gr.Markdown("### Trial Version 3")
+
+    with gr.Row():
+        file_input = gr.File(label="Upload Question File")
+        run_btn = gr.Button("Run RAG")
+
+    output_table = gr.Dataframe(
+        headers=["Question", "Answer", "Confidence Score", "Label"],
+        wrap=True
+    )
+
+    csv_output = gr.File(label="Download Output CSV")
+
+    run_btn.click(
+        fn=process_file,
+        inputs=file_input,
+        outputs=[output_table, csv_output]
+    )
+
+demo.launch(server_name="0.0.0.0", server_port=7860)

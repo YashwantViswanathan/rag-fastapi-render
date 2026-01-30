@@ -260,7 +260,11 @@ def upload_questions(file: UploadFile = File(...)):
             "confidence_label": result["confidence_label"]
         })
 
-    return {"processed": len(qa_pairs)}
+    return {
+        "processed": len(qa_pairs),
+        "results": qa_pairs
+    }
+
 
 @app.get("/download")
 def download_csv():

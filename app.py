@@ -185,22 +185,47 @@ def process_file(file):
 # Custom CSS (Blue–Black theme)
 # --------------------------------------------------
 custom_css = """
+/* Page background */
 body {
-    background: linear-gradient(135deg, #0a1f44, #000000);
+    background: linear-gradient(135deg, #0b2a4a 0%, #020617 55%, #000000 100%);
 }
 
+/* Gradio root container */
 .gradio-container {
     background: transparent !important;
 }
 
-.block {
-    background: #000000 !important;
-    border-radius: 10px;
-    padding: 12px;
+/* Section wrappers (keep transparent so blue shows) */
+.wrap,
+.contain,
+.app {
+    background: transparent !important;
 }
 
+/* Header blocks */
+h1, h2, h3 {
+    color: #e5e7eb;
+}
+
+/* Input + output cards ONLY */
+.block:has(input),
+.block:has(button),
+.block:has(table),
+.block:has(.dataframe) {
+    background: #000000 !important;
+    border-radius: 12px;
+    padding: 14px;
+    box-shadow: 0 0 20px rgba(0, 0, 0, 0.6);
+}
+
+/* Dataframe styling */
 table {
     background: #000000 !important;
+}
+
+/* Improve table row contrast */
+tr:nth-child(even) {
+    background-color: #020617;
 }
 """
 

@@ -42,7 +42,7 @@ COSMOS_CONTAINER = os.getenv("COSMOS_CONTAINER")
 # --------------------------------------------------
 app = FastAPI(
     title="Batch RAG InfoSec Assistant",
-    version="2.3.0"
+    version="2.4.0"
 )
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -129,29 +129,25 @@ def retrieve_chunks(question: str, top_k: int):
     return [r["content"] for r in results]
 
 # --------------------------------------------------
-# -------- CONFIDENCE / GROUNDEDNESS SCORE ----------
+# -------- CONFIDENCE SCORE (TOP-1 REFERENCE) -------
 # --------------------------------------------------
-def compute_confidence_score(answer: str, reference: str, retrieved_chunks: List[str]) -> tuple[float, str]:
-    # Embedding similarity
+def compute_confidence_score(answer: str, true_answer: str) -> tuple[float, str]:
+    # Semantic similarity
     ans_emb = np.array(embed_text(answer)).reshape(1, -1)
-    ref_emb = np.array(embed_text(reference)).reshape(1, -1)
+    ref_emb = np.array(embed_text(true_answer)).reshape(1, -1)
     semantic_sim = cosine_similarity(ans_emb, ref_emb)[0][0]
 
     # ROUGE-L
     rouge = rouge_scorer.RougeScorer(["rougeL"], use_stemmer=True)
-    rouge_l = rouge.score(reference, answer)["rougeL"].fmeasure
+    rouge_l = rouge.score(true_answer, answer)["rougeL"].fmeasure
 
     # BLEU
-    bleu = sentence_bleu(answer, [reference]).score / 100.0
-
-    # Retrieval strength heuristic
-    retrieval_strength = min(len(" ".join(retrieved_chunks)) / 1500, 1.0)
+    bleu = sentence_bleu(answer, [true_answer]).score / 100.0
 
     final_score = (
-        0.50 * semantic_sim +
+        0.65 * semantic_sim +
         0.25 * rouge_l +
-        0.15 * bleu +
-        0.10 * retrieval_strength
+        0.10 * bleu
     ) * 100
 
     final_score = round(min(max(final_score, 0), 100), 2)
@@ -170,7 +166,7 @@ def compute_confidence_score(answer: str, reference: str, retrieved_chunks: List
 # --------------------------------------------------
 def run_rag(question: str):
     broad = is_broad_question(question)
-    chunks = retrieve_chunks(question, 30 if broad else 10)
+    chunks = retrieve_chunks(question, 30 if broad else 5)
 
     if not chunks:
         return {
@@ -179,7 +175,7 @@ def run_rag(question: str):
             "confidence_label": "Low"
         }
 
-    reference_text = " ".join(chunks[:2])
+    true_answer = chunks[0]  # most relevant KB answer
 
     messages = [
         {
@@ -200,8 +196,7 @@ def run_rag(question: str):
     )
 
     answer = clean_generated_text(response.choices[0].message.content)
-
-    score, label = compute_confidence_score(answer, reference_text, chunks)
+    score, label = compute_confidence_score(answer, true_answer)
 
     return {
         "answer": answer,

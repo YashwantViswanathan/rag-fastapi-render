@@ -1,20 +1,29 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Response Generation AI Agent POCt</title>
+  <title>Response Generation AI Agent POC</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
   <div class="container">
 
-    <p style="color:red; font-size:22px;">
-        Trial Version 3
-    </p>
+    <p class="trial">Trial Version 3</p>
 
-    <h1>Response Generation AI agent POC</h1>
+    <h1>Response Generation AI Agent</h1>
+
+    <p class="subtitle">
+      Answers are generated using a Retrieval-Augmented Generation (RAG) pipeline.<br/>
+      Each answer includes a confidence score based on knowledge alignment.
+    </p>
 
     <input type="file" id="fileInput" />
     <button onclick="uploadFile()">Upload Question File</button>
+
+    <div class="score-legend">
+      <span class="badge high">High (85–100)</span>
+      <span class="badge medium">Medium (65–84)</span>
+      <span class="badge low">Low (&lt; 65)</span>
+    </div>
 
     <button class="download" onclick="downloadCSV()">Download Output CSV</button>
 

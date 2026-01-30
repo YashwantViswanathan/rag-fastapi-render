@@ -16,6 +16,11 @@ import pandas as pd
 from PyPDF2 import PdfReader
 from docx import Document
 import unicodedata
+import numpy as np
+
+from rouge_score import rouge_scorer
+from sacrebleu import sentence_bleu
+from sklearn.metrics.pairwise import cosine_similarity
 
 # --------------------------------------------------
 # Load environment variables
@@ -37,7 +42,7 @@ COSMOS_CONTAINER = os.getenv("COSMOS_CONTAINER")
 # --------------------------------------------------
 app = FastAPI(
     title="Batch RAG InfoSec Assistant",
-    version="2.2.0"
+    version="2.3.0"
 )
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -52,7 +57,6 @@ openai_client = AzureOpenAI(
 )
 
 cosmos_client = CosmosClient(COSMOS_ENDPOINT, COSMOS_KEY)
-
 db = cosmos_client.get_database_client(COSMOS_DATABASE)
 container = db.get_container_client(COSMOS_CONTAINER)
 
@@ -124,12 +128,58 @@ def retrieve_chunks(question: str, top_k: int):
 
     return [r["content"] for r in results]
 
-def run_rag(question: str) -> str:
+# --------------------------------------------------
+# -------- CONFIDENCE / GROUNDEDNESS SCORE ----------
+# --------------------------------------------------
+def compute_confidence_score(answer: str, reference: str, retrieved_chunks: List[str]) -> tuple[float, str]:
+    # Embedding similarity
+    ans_emb = np.array(embed_text(answer)).reshape(1, -1)
+    ref_emb = np.array(embed_text(reference)).reshape(1, -1)
+    semantic_sim = cosine_similarity(ans_emb, ref_emb)[0][0]
+
+    # ROUGE-L
+    rouge = rouge_scorer.RougeScorer(["rougeL"], use_stemmer=True)
+    rouge_l = rouge.score(reference, answer)["rougeL"].fmeasure
+
+    # BLEU
+    bleu = sentence_bleu(answer, [reference]).score / 100.0
+
+    # Retrieval strength heuristic
+    retrieval_strength = min(len(" ".join(retrieved_chunks)) / 1500, 1.0)
+
+    final_score = (
+        0.50 * semantic_sim +
+        0.25 * rouge_l +
+        0.15 * bleu +
+        0.10 * retrieval_strength
+    ) * 100
+
+    final_score = round(min(max(final_score, 0), 100), 2)
+
+    if final_score >= 85:
+        label = "High"
+    elif final_score >= 65:
+        label = "Medium"
+    else:
+        label = "Low"
+
+    return final_score, label
+
+# --------------------------------------------------
+# ------------------- RAG PIPE ---------------------
+# --------------------------------------------------
+def run_rag(question: str):
     broad = is_broad_question(question)
     chunks = retrieve_chunks(question, 30 if broad else 10)
 
     if not chunks:
-        return "I do not have sufficient information from the provided documents."
+        return {
+            "answer": "I do not have sufficient information from the provided documents.",
+            "confidence_score": 0.0,
+            "confidence_label": "Low"
+        }
+
+    reference_text = " ".join(chunks[:2])
 
     messages = [
         {
@@ -149,7 +199,15 @@ def run_rag(question: str) -> str:
         max_tokens=700
     )
 
-    return clean_generated_text(response.choices[0].message.content)
+    answer = clean_generated_text(response.choices[0].message.content)
+
+    score, label = compute_confidence_score(answer, reference_text, chunks)
+
+    return {
+        "answer": answer,
+        "confidence_score": score,
+        "confidence_label": label
+    }
 
 # --------------------------------------------------
 # ----------- QUESTION FILE PARSING ----------------
@@ -199,8 +257,13 @@ def upload_questions(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="No questions found in file")
 
     for q in questions:
-        answer = run_rag(q)
-        qa_pairs.append({"question": q, "answer": answer})
+        result = run_rag(q)
+        qa_pairs.append({
+            "question": q,
+            "answer": result["answer"],
+            "confidence_score": result["confidence_score"],
+            "confidence_label": result["confidence_label"]
+        })
 
     return {"processed": len(qa_pairs)}
 
@@ -210,7 +273,10 @@ def download_csv():
         raise HTTPException(status_code=404, detail="No data available")
 
     buffer = io.StringIO()
-    writer = csv.DictWriter(buffer, fieldnames=["question", "answer"])
+    writer = csv.DictWriter(
+        buffer,
+        fieldnames=["question", "answer", "confidence_score", "confidence_label"]
+    )
     writer.writeheader()
     writer.writerows(qa_pairs)
     buffer.seek(0)

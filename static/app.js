@@ -10,7 +10,7 @@ async function uploadFile() {
   const formData = new FormData();
   formData.append("file", fileInput.files[0]);
 
-  status.textContent = "Processing questions...";
+  status.textContent = "Processing questions and evaluating answer confidence...";
 
   try {
     const response = await fetch("/upload", {
@@ -24,7 +24,8 @@ async function uploadFile() {
     }
 
     const data = await response.json();
-    status.textContent = `Processed ${data.processed} questions successfully.`;
+    status.textContent =
+      `Processed ${data.processed} questions successfully. Confidence scores included in CSV output.`;
 
   } catch (error) {
     status.textContent = `Error: ${error.message}`;

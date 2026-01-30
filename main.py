@@ -152,9 +152,9 @@ def compute_confidence_score(answer: str, true_answer: str) -> tuple[float, str]
 
     final_score = round(min(max(final_score, 0), 100), 2)
 
-    if final_score >= 85:
+    if final_score >= 80:
         label = "High"
-    elif final_score >= 65:
+    elif final_score >= 60:
         label = "Medium"
     else:
         label = "Low"

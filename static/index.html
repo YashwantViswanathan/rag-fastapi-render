@@ -1,33 +1,51 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Response Generation AI Agent POC</title>
+  <title>Response Generation AI Agent</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-  <div class="container">
 
-    <p class="trial">Trial Version 3</p>
-
+  <!-- Top bar -->
+  <header class="top-bar">
     <h1>Response Generation AI Agent</h1>
+  </header>
 
-    <p class="subtitle">
-      Answers are generated using a Retrieval-Augmented Generation (RAG) pipeline.<br/>
-      Each answer includes a confidence score based on knowledge alignment.
-    </p>
+  <div class="layout">
 
-    <input type="file" id="fileInput" />
-    <button onclick="uploadFile()">Upload Question File</button>
+    <!-- Left panel -->
+    <aside class="left-panel">
+      <p class="trial">Trial Version 3</p>
 
-    <div class="score-legend">
-      <span class="badge high">High (85–100)</span>
-      <span class="badge medium">Medium (65–84)</span>
-      <span class="badge low">Low (&lt; 65)</span>
-    </div>
+      <input type="file" id="fileInput" />
+      <button onclick="uploadFile()">Upload Question File</button>
 
-    <button class="download" onclick="downloadCSV()">Download Output CSV</button>
+      <button class="download" onclick="downloadCSV()">Download Output CSV</button>
 
-    <p id="status"></p>
+      <div class="legend">
+        <h4>Confidence Score</h4>
+        <span class="badge high">High (≥ 85)</span>
+        <span class="badge medium">Medium (65–84)</span>
+        <span class="badge low">Low (&lt; 65)</span>
+      </div>
+
+      <p id="status"></p>
+    </aside>
+
+    <!-- Center panel -->
+    <main class="main-panel">
+      <table id="resultsTable">
+        <thead>
+          <tr>
+            <th>Question</th>
+            <th>Generated Answer</th>
+            <th>Score</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </main>
+
   </div>
 
   <script src="/static/app.js"></script>

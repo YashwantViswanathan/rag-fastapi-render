@@ -189,47 +189,24 @@ def process_file(file):
     ui_rows = []
     csv_rows = []
 
-    def run_rag(question: str):
-    chunks = retrieve_chunks(question)
+    for q in questions:
+        result = run_rag(q)
 
-    if not chunks:
-        return {
-            "answer": "No relevant knowledge found.",
-            "score": 0.0,
-            "label": "Low",
-            "color": "red"
-        }
+    # UI row (HTML)
+        ui_rows.append([
+            q,
+            result["answer"],
+            f"<span style='color:{result['color']}; font-weight:bold'>{result['score']}</span>",
+            f"<span style='color:{result['color']}; font-weight:bold'>{result['label']}</span>"
+    ])
 
-    true_answer = chunks[0]
-
-    response = openai_client.chat.completions.create(
-        model=AZURE_OAI_DEPLOYMENT,
-        messages=[
-            {"role": "system", "content": "Answer strictly using the provided context."},
-            {"role": "user", "content": f"Context:\n{true_answer}\n\nQuestion:\n{question}"}
-        ],
-        temperature=0.05,
-        max_tokens=600
-    )
-
-    answer = response.choices[0].message.content.strip()
-
-    if not answer:
-        return {
-            "answer": "No answer generated.",
-            "score": 0.0,
-            "label": "Low",
-            "color": "red"
-        }
-
-    score, label, color = compute_confidence_score(answer, true_answer)
-
-    return {
-        "answer": answer,
-        "score": score,
-        "label": label,
-        "color": color
-    }
+    # CSV row (plain)
+        csv_rows.append([
+            q,
+            result["answer"],
+            result["score"],
+            result["label"]
+        ])
 
 
     # UI DataFrame

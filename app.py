@@ -161,25 +161,50 @@ def process_file(file):
     if not questions:
         raise gr.Error("No questions found in the uploaded file.")
 
-    rows = []
+    ui_rows = []
+    csv_rows = []
+
     for q in questions:
-        score, label, color, answer = run_rag(q)
-        rows.append([
+        chunks = retrieve_chunks(q)
+        if not chunks:
+            answer, score, label, color = "No relevant knowledge found.", 0.0, "Low", "red"
+        else:
+            true_answer = chunks[0]
+            answer = run_rag(q)[0] if isinstance(run_rag(q), tuple) else run_rag(q)
+            score, label, color = compute_confidence_score(answer, true_answer)
+
+        # -------- UI ROW (HTML formatted) --------
+        ui_rows.append([
             q,
             answer,
             f"<span style='color:{color}; font-weight:bold'>{score}</span>",
             f"<span style='color:{color}; font-weight:bold'>{label}</span>"
         ])
 
-    df = pd.DataFrame(
-        rows,
+        # -------- CSV ROW (PLAIN TEXT) --------
+        csv_rows.append([
+            q,
+            answer,
+            score,
+            label
+        ])
+
+    # UI DataFrame
+    ui_df = pd.DataFrame(
+        ui_rows,
+        columns=["Question", "Answer", "Confidence Score", "Label"]
+    )
+
+    # CSV DataFrame (NO HTML)
+    csv_df = pd.DataFrame(
+        csv_rows,
         columns=["Question", "Answer", "Confidence Score", "Label"]
     )
 
     output_path = os.path.join(tempfile.gettempdir(), "Generated_Responses.csv")
-    df.to_csv(output_path, index=False)
+    csv_df.to_csv(output_path, index=False)
 
-    return df, output_path
+    return ui_df, output_path
 
 # --------------------------------------------------
 # Custom CSS (Blue–Black theme)

@@ -187,43 +187,67 @@ def process_file(file):
 custom_css = """
 /* Page background */
 body {
-    background: linear-gradient(135deg, #0b2a4a 0%, #020617 55%, #000000 100%);
+    background: linear-gradient(135deg, #0b2a4a 0%, #020617 50%, #000000 100%);
 }
 
-/* Gradio root container */
+/* Root container */
 .gradio-container {
     background: transparent !important;
 }
 
-/* Section wrappers (keep transparent so blue shows) */
+/* Layout wrappers */
 .wrap,
 .contain,
 .app {
     background: transparent !important;
 }
 
-/* Header blocks */
+/* Headings */
 h1, h2, h3 {
     color: #e5e7eb;
 }
 
-/* Input + output cards ONLY */
+/* Input + output cards */
 .block:has(input),
 .block:has(button),
 .block:has(table),
 .block:has(.dataframe) {
     background: #000000 !important;
-    border-radius: 12px;
+    border-radius: 14px;
     padding: 14px;
-    box-shadow: 0 0 20px rgba(0, 0, 0, 0.6);
+    box-shadow: 0 0 24px rgba(0, 0, 0, 0.7);
 }
 
-/* Dataframe styling */
+/* Table base */
 table {
     background: #000000 !important;
+    border-collapse: separate;
+    border-spacing: 0 6px; /* spacing for hover effect */
 }
 
-/* Improve table row contrast */
+/* Table rows */
+tbody tr {
+    transition: 
+        transform 0.15s ease,
+        background-color 0.15s ease,
+        box-shadow 0.15s ease;
+}
+
+/* Hover effect */
+tbody tr:hover {
+    background-color: #0b2a4a !important;
+    transform: scale(1.01);
+    box-shadow: 0 0 12px rgba(59, 130, 246, 0.35);
+    cursor: pointer;
+}
+
+/* Table cells */
+td, th {
+    padding: 12px;
+    vertical-align: top;
+}
+
+/* Zebra striping */
 tr:nth-child(even) {
     background-color: #020617;
 }

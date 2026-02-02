@@ -49,10 +49,14 @@ container = db.get_container_client(COSMOS_CONTAINER)
 # Utility functions
 # --------------------------------------------------
 def embed_text(text: str):
+    if not text or not isinstance(text, str) or not text.strip():
+        raise ValueError("Invalid text passed for embedding")
+
     return openai_client.embeddings.create(
         model=AZURE_OAI_EMBEDDING_DEPLOYMENT,
-        input=text
+        input=text.strip()
     ).data[0].embedding
+
 
 def retrieve_chunks(question: str, top_k: int = 5) -> List[str]:
     query_embedding = embed_text(question)
@@ -108,7 +112,12 @@ def run_rag(question: str):
     chunks = retrieve_chunks(question)
 
     if not chunks:
-        return "No relevant knowledge found.", 0.0, "Low", "red"
+        return {
+            "answer": "No relevant knowledge found.",
+            "score": 0.0,
+            "label": "Low",
+            "color": "red"
+        }
 
     true_answer = chunks[0]
 
@@ -123,7 +132,23 @@ def run_rag(question: str):
     )
 
     answer = response.choices[0].message.content.strip()
-    return (*compute_confidence_score(answer, true_answer), answer)
+
+    if not answer:
+        return {
+            "answer": "No answer generated.",
+            "score": 0.0,
+            "label": "Low",
+            "color": "red"
+        }
+
+    score, label, color = compute_confidence_score(answer, true_answer)
+
+    return {
+        "answer": answer,
+        "score": score,
+        "label": label,
+        "color": color
+    }
 
 # --------------------------------------------------
 # File parsing
@@ -164,30 +189,48 @@ def process_file(file):
     ui_rows = []
     csv_rows = []
 
-    for q in questions:
-        chunks = retrieve_chunks(q)
-        if not chunks:
-            answer, score, label, color = "No relevant knowledge found.", 0.0, "Low", "red"
-        else:
-            true_answer = chunks[0]
-            answer = run_rag(q)[0] if isinstance(run_rag(q), tuple) else run_rag(q)
-            score, label, color = compute_confidence_score(answer, true_answer)
+    def run_rag(question: str):
+    chunks = retrieve_chunks(question)
 
-        # -------- UI ROW (HTML formatted) --------
-        ui_rows.append([
-            q,
-            answer,
-            f"<span style='color:{color}; font-weight:bold'>{score}</span>",
-            f"<span style='color:{color}; font-weight:bold'>{label}</span>"
-        ])
+    if not chunks:
+        return {
+            "answer": "No relevant knowledge found.",
+            "score": 0.0,
+            "label": "Low",
+            "color": "red"
+        }
 
-        # -------- CSV ROW (PLAIN TEXT) --------
-        csv_rows.append([
-            q,
-            answer,
-            score,
-            label
-        ])
+    true_answer = chunks[0]
+
+    response = openai_client.chat.completions.create(
+        model=AZURE_OAI_DEPLOYMENT,
+        messages=[
+            {"role": "system", "content": "Answer strictly using the provided context."},
+            {"role": "user", "content": f"Context:\n{true_answer}\n\nQuestion:\n{question}"}
+        ],
+        temperature=0.05,
+        max_tokens=600
+    )
+
+    answer = response.choices[0].message.content.strip()
+
+    if not answer:
+        return {
+            "answer": "No answer generated.",
+            "score": 0.0,
+            "label": "Low",
+            "color": "red"
+        }
+
+    score, label, color = compute_confidence_score(answer, true_answer)
+
+    return {
+        "answer": answer,
+        "score": score,
+        "label": label,
+        "color": color
+    }
+
 
     # UI DataFrame
     ui_df = pd.DataFrame(

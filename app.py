@@ -230,93 +230,103 @@ def process_file(file):
 # Custom CSS (Blue–Black theme)
 # --------------------------------------------------
 custom_css = """
-/* =====================
-   RESPECT LIGHT / DARK MODE
-   ===================== */
-
-:root {
-    --card-bg: var(--background-fill-secondary);
-    --border-color: var(--border-color-primary);
-    --text-color: var(--body-text-color);
-    --hover-bg: var(--neutral-200);
-}
-
-@media (prefers-color-scheme: dark) {
-    :root {
-        --hover-bg: var(--neutral-800);
-    }
-}
-
-/* =====================
-   GENERAL LAYOUT CLEANUP
-   ===================== */
+/* =====================================================
+   BASE – DO NOT FORCE BACKGROUNDS
+   ===================================================== */
 
 .gradio-container {
     background: var(--background-fill-primary) !important;
 }
 
-/* Cards / blocks */
-.block {
-    background: var(--card-bg) !important;
-    border-radius: 12px;
-    padding: 12px;
-    border: 1px solid var(--border-color);
+/* =====================================================
+   LIGHT MODE
+   ===================================================== */
+@media (prefers-color-scheme: light) {
+
+    body, .gradio-container {
+        color: #000000 !important;
+    }
+
+    /* Cards / blocks */
+    .block {
+        background: #ffffff !important;
+        border: 1px solid #d1d5db;
+        border-radius: 12px;
+    }
+
+    /* Table */
+    table {
+        background: #ffffff !important;
+        color: #000000 !important;
+        border-collapse: collapse;
+    }
+
+    thead th {
+        color: #000000 !important;
+        border-bottom: 2px solid #d1d5db;
+    }
+
+    tbody tr {
+        background: #ffffff !important;
+        transition: background 0.15s ease;
+    }
+
+    tbody tr:hover {
+        background: #e5e7eb !important; /* grey hover */
+    }
+
+    td {
+        color: #000000 !important;
+        border-bottom: 1px solid #e5e7eb;
+    }
 }
 
-/* Headings */
-h1, h2, h3 {
-    color: var(--text-color) !important;
+/* =====================================================
+   DARK MODE
+   ===================================================== */
+@media (prefers-color-scheme: dark) {
+
+    body, .gradio-container {
+        color: #ffffff !important;
+    }
+
+    /* Cards / blocks */
+    .block {
+        background: #0f172a !important;
+        border: 1px solid #334155;
+        border-radius: 12px;
+    }
+
+    /* Table */
+    table {
+        background: #0f172a !important;
+        color: #ffffff !important;
+        border-collapse: collapse;
+    }
+
+    thead th {
+        color: #ffffff !important;
+        border-bottom: 2px solid #334155;
+    }
+
+    tbody tr {
+        background: #0f172a !important;
+        transition: background 0.15s ease;
+    }
+
+    tbody tr:hover {
+        background: #374151 !important; /* grey hover */
+    }
+
+    td {
+        color: #ffffff !important;
+        border-bottom: 1px solid #334155;
+    }
 }
 
-/* =====================
-   INPUTS & BUTTONS
-   ===================== */
-
-input, textarea {
-    background: var(--background-fill-primary) !important;
-    color: var(--text-color) !important;
-    border: 1px solid var(--border-color) !important;
-}
-
-button {
-    border-radius: 10px;
-    font-weight: 600;
-}
-
-/* =====================
-   TABLE STYLING
-   ===================== */
-
-table {
-    background: transparent !important;
-    color: var(--text-color) !important;
-    border-collapse: collapse;
-}
-
-thead th {
-    font-weight: 600;
-    border-bottom: 2px solid var(--border-color);
-    padding: 12px;
-}
-
-tbody tr {
-    transition: background 0.15s ease, transform 0.15s ease;
-}
-
-tbody tr:hover {
-    background: var(--hover-bg) !important;
-    transform: scale(1.01);
-}
-
-td {
-    padding: 12px;
-    vertical-align: top;
-    border-bottom: 1px solid var(--border-color);
-}
-
-/* =====================
-   CONFIDENCE COLORS
-   ===================== */
+/* =====================================================
+   CONFIDENCE COLORS (same in both modes)
+   ===================================================== */
 
 .conf-high {
     color: #16a34a;

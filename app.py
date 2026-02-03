@@ -348,9 +348,13 @@ custom_css = """
 # --------------------------------------------------
 # Gradio UI
 # --------------------------------------------------
-with gr.Blocks(css=custom_css, title="Response Generation AI Agent") as demo:
-    gr.Markdown("## Response Generation AI Agent")
-    gr.Markdown("### Trial Version 3")
+with gr.Blocks(css=custom_css) as demo:
+    gr.Markdown(
+        "<h1 style='text-align: center; margin-bottom: 0.5rem;'>"
+        "Response Generation AI Agent"
+        "</h1>"
+    )
+
 
     with gr.Row():
         file_input = gr.File(label="Upload Question File")

@@ -230,12 +230,17 @@ def process_file(file):
 # Custom CSS (Blue–Black theme)
 # --------------------------------------------------
 custom_css = """
-/* Page background */
+/* -------- Page background (breezy cerulean blue) -------- */
 body {
-    background: linear-gradient(135deg, #0b2a4a 0%, #020617 50%, #000000 100%);
+    background: linear-gradient(
+        135deg,
+        #2aa7ff 0%,     /* Cerulean blue */
+        #5bbcff 35%,    /* Light sky blue */
+        #cfe9ff 100%    /* Very light blue */
+    );
 }
 
-/* Root container */
+/* Root container transparent so background shows */
 .gradio-container {
     background: transparent !important;
 }
@@ -249,40 +254,40 @@ body {
 
 /* Headings */
 h1, h2, h3 {
-    color: #e5e7eb;
+    color: #0f172a; /* dark slate for contrast */
 }
 
-/* Input + output cards */
+/* -------- Cards (inputs, buttons, table) -------- */
 .block:has(input),
 .block:has(button),
 .block:has(table),
 .block:has(.dataframe) {
-    background: #000000 !important;
+    background: #020617 !important;  /* near-black */
     border-radius: 14px;
     padding: 14px;
-    box-shadow: 0 0 24px rgba(0, 0, 0, 0.7);
+    box-shadow: 0 10px 30px rgba(2, 6, 23, 0.35);
 }
 
-/* Table base */
+/* -------- Table styling -------- */
 table {
-    background: #000000 !important;
+    background: #020617 !important;
     border-collapse: separate;
-    border-spacing: 0 6px; /* spacing for hover effect */
+    border-spacing: 0 6px;
 }
 
 /* Table rows */
 tbody tr {
-    transition: 
+    transition:
         transform 0.15s ease,
         background-color 0.15s ease,
         box-shadow 0.15s ease;
 }
 
-/* Hover effect */
+/* Hover effect (blue accent) */
 tbody tr:hover {
-    background-color: #0b2a4a !important;
+    background-color: #0b3a66 !important;
     transform: scale(1.01);
-    box-shadow: 0 0 12px rgba(59, 130, 246, 0.35);
+    box-shadow: 0 0 14px rgba(42, 167, 255, 0.6);
     cursor: pointer;
 }
 
@@ -290,6 +295,7 @@ tbody tr:hover {
 td, th {
     padding: 12px;
     vertical-align: top;
+    color: #e5e7eb;
 }
 
 /* Zebra striping */
@@ -297,6 +303,7 @@ tr:nth-child(even) {
     background-color: #020617;
 }
 """
+
 
 # --------------------------------------------------
 # Gradio UI

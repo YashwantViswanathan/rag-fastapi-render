@@ -230,73 +230,92 @@ def process_file(file):
 # Custom CSS (Blue–Black theme)
 # --------------------------------------------------
 custom_css = """
-/* Page background */
-body {
-    background: linear-gradient(135deg, #0b2a4a 0%, #020617 50%, #000000 100%);
+/* ================= GLOBAL RESET ================= */
+html, body {
+    color-scheme: light;
+    background: linear-gradient(
+        135deg,
+        #2aa7ff 0%,
+        #6ec1ff 45%,
+        #eaf4ff 100%
+    );
+    color: #0f172a;
 }
 
 /* Root container */
 .gradio-container {
     background: transparent !important;
+    color: #0f172a !important;
 }
 
-/* Layout wrappers */
-.wrap,
-.contain,
-.app {
-    background: transparent !important;
+/* ================= CARD CONTAINERS ================= */
+.block {
+    background: #0f172a !important;
+    border-radius: 16px;
+    padding: 16px;
+    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.25);
+    color: #f8fafc !important;
 }
 
-/* Headings */
-h1, h2, h3 {
-    color: #e5e7eb;
+/* Inputs */
+input, textarea {
+    background: #020617 !important;
+    color: #f8fafc !important;
+    border: 1px solid #334155 !important;
 }
 
-/* Input + output cards */
-.block:has(input),
-.block:has(button),
-.block:has(table),
-.block:has(.dataframe) {
-    background: #000000 !important;
-    border-radius: 14px;
-    padding: 14px;
-    box-shadow: 0 0 24px rgba(0, 0, 0, 0.7);
+/* Buttons */
+button {
+    background: #2563eb !important;
+    color: #ffffff !important;
+    border-radius: 12px;
+    font-weight: 600;
 }
 
-/* Table base */
+/* ================= TABLE ================= */
 table {
-    background: #000000 !important;
-    border-collapse: separate;
-    border-spacing: 0 6px; /* spacing for hover effect */
+    width: 100%;
+    background: #020617 !important;
+    border-collapse: collapse !important;
+    color: #f8fafc !important;
 }
 
-/* Table rows */
+/* Header */
+thead th {
+    background: #020617 !important;
+    color: #f8fafc !important;
+    font-weight: 700;
+    padding: 14px;
+    border-bottom: 2px solid #334155;
+}
+
+/* Body rows */
 tbody tr {
-    transition: 
-        transform 0.15s ease,
-        background-color 0.15s ease,
-        box-shadow 0.15s ease;
+    background: #0b1220 !important;
+    transition: all 0.15s ease-in-out;
 }
 
-/* Hover effect */
+/* Hover */
 tbody tr:hover {
-    background-color: #0b2a4a !important;
+    background: #0b3a66 !important;
     transform: scale(1.01);
-    box-shadow: 0 0 12px rgba(59, 130, 246, 0.35);
-    cursor: pointer;
+    box-shadow: 0 0 12px rgba(42, 167, 255, 0.6);
 }
 
-/* Table cells */
-td, th {
-    padding: 12px;
+/* Cells */
+td {
+    padding: 14px;
+    color: #f8fafc !important;
     vertical-align: top;
+    border-bottom: 1px solid #1e293b;
 }
 
-/* Zebra striping */
-tr:nth-child(even) {
-    background-color: #020617;
+/* ================= TEXT LOCK ================= */
+h1, h2, h3, p, label, span {
+    color: #f8fafc !important;
 }
 """
+
 
 # --------------------------------------------------
 # Gradio UI

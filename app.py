@@ -351,7 +351,7 @@ custom_css = """
 with gr.Blocks(css=custom_css) as demo:
     gr.Markdown(
         "<h1 style='text-align: center; margin-bottom: 0.5rem;'>"
-        "Response Generation AI Agent"
+        "RFP Response AI Agent"
         "</h1>"
     )
 

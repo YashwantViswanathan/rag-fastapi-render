@@ -2,10 +2,6 @@ import os
 import tempfile
 from typing import List
 
-from reportlab.lib.pagesizes import A4
-from reportlab.pdfgen import canvas
-from docx import Document
-
 import gradio as gr
 import pandas as pd
 import numpy as np
@@ -16,6 +12,8 @@ from azure.cosmos import CosmosClient
 
 from PyPDF2 import PdfReader
 from docx import Document
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas
 
 from rouge_score import rouge_scorer
 from sacrebleu import sentence_bleu
@@ -101,7 +99,7 @@ def compute_confidence_score(answer: str, true_answer: str):
         return score, "Low", "red"
 
 
-def run_rag(question: str):
+def run_rag(question: str, user_instruction: str):
     chunks = retrieve_chunks(question)
 
     if not chunks:
@@ -109,13 +107,32 @@ def run_rag(question: str):
 
     true_answer = chunks[0]
 
+    # ---- SYSTEM PROMPT (AUTHORITATIVE, NEVER OVERRIDDEN) ----
+    system_prompt = (
+        "You are an information security assistant. "
+        "Answer strictly using the provided context. "
+        "Do not add external knowledge or assumptions."
+    )
+
+    # ---- USER PROMPT (OPTIONAL INSTRUCTIONS) ----
+    user_prompt = f"""
+Context:
+{true_answer}
+
+Question:
+{question}
+
+User Instructions (if any):
+{user_instruction if user_instruction else "None"}
+"""
+
     response = openai_client.chat.completions.create(
         model=AZURE_OAI_DEPLOYMENT,
         messages=[
-            {"role": "system", "content": "Answer strictly using the provided context."},
-            {"role": "user", "content": f"Context:\n{true_answer}\n\nQuestion:\n{question}"}
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
         ],
-        temperature=0.05,
+        temperature=0.9,
         max_tokens=600
     )
 
@@ -152,51 +169,34 @@ def extract_questions(file_path: str) -> List[str]:
     return [q.strip() for q in questions if q.strip()]
 
 # --------------------------------------------------
-# Gradio processing (FIXED)
+# Gradio processing
 # --------------------------------------------------
-def process_file(file):
+def process_file(file, user_instruction):
     questions = extract_questions(file.name)
 
     if not questions:
         raise gr.Error("No questions found in the uploaded file.")
 
-    ui_rows = []
-    csv_rows = []
+    rows = []
 
     for q in questions:
-        result = run_rag(q)
+        result = run_rag(q, user_instruction)
 
-        ui_rows.append([
+        rows.append([
             q,
             result["answer"],
             result["score"],
             result["label"],
-            ""   # User Feedback
+            ""  # User Feedback
         ])
 
-        csv_rows.append([
-            q,
-            result["answer"],
-            result["score"],
-            result["label"]
-        ])
-
-    ui_df = pd.DataFrame(
-        ui_rows,
+    return pd.DataFrame(
+        rows,
         columns=["Question", "Answer", "Confidence Score", "Label", "User Feedback"]
     )
 
-    csv_df = pd.DataFrame(
-        csv_rows,
-        columns=["Question", "Answer", "Confidence Score", "Label"]
-    )
-
-    csv_df.to_csv(os.path.join(tempfile.gettempdir(), "Generated_Responses.csv"), index=False)
-
-    return ui_df   # ✅ CRITICAL FIX: return ONLY DataFrame
-
 # --------------------------------------------------
-# Export utilities (UNCHANGED)
+# Export utilities
 # --------------------------------------------------
 def export_csv(df):
     path = os.path.join(tempfile.gettempdir(), "Generated_Responses.csv")
@@ -210,7 +210,7 @@ def export_txt(df):
         for _, row in df.iterrows():
             for col in df.columns:
                 f.write(f"{col}: {row[col]}\n")
-            f.write("\n" + "-" * 50 + "\n\n")
+            f.write("\n" + "-" * 60 + "\n\n")
     return path
 
 
@@ -264,104 +264,35 @@ def export_file(df, export_format):
         return export_txt(df)
     raise ValueError("Unsupported export format")
 
+# --------------------------------------------------
+# Custom CSS (adaptive light/dark)
+# --------------------------------------------------
 custom_css = """
-.gradio-container {
-    background: var(--background-fill-primary) !important;
-}
-
-/* ================= LIGHT MODE ================= */
+.gradio-container { background: var(--background-fill-primary) !important; }
 @media (prefers-color-scheme: light) {
-
-    body, .gradio-container {
-        color: #000000 !important;
-    }
-
-    .block {
-        background: #ffffff !important;
-        border: 1px solid #d1d5db;
-        border-radius: 12px;
-    }
-
-    table {
-        background: #ffffff !important;
-        color: #000000 !important;
-        border-collapse: collapse;
-    }
-
-    thead th {
-        color: #000000 !important;
-        border-bottom: 2px solid #d1d5db;
-    }
-
-    tbody tr:hover {
-        background: #e5e7eb !important; /* grey hover */
-    }
-
-    td {
-        color: #000000 !important;
-        border-bottom: 1px solid #e5e7eb;
-    }
+  body { color: #000000; }
+  tbody tr:hover { background: #e5e7eb !important; }
 }
-
-/* ================= DARK MODE ================= */
 @media (prefers-color-scheme: dark) {
-
-    body, .gradio-container {
-        color: #ffffff !important;
-    }
-
-    .block {
-        background: #0f172a !important;
-        border: 1px solid #334155;
-        border-radius: 12px;
-    }
-
-    table {
-        background: #0f172a !important;
-        color: #ffffff !important;
-        border-collapse: collapse;
-    }
-
-    thead th {
-        color: #ffffff !important;
-        border-bottom: 2px solid #334155;
-    }
-
-    tbody tr:hover {
-        background: #374151 !important; /* grey hover */
-    }
-
-    td {
-        color: #ffffff !important;
-        border-bottom: 1px solid #334155;
-    }
-}
-
-/* ================= CONFIDENCE COLORS ================= */
-.conf-high {
-    color: #16a34a;
-    font-weight: 700;
-}
-
-.conf-medium {
-    color: #f59e0b;
-    font-weight: 700;
-}
-
-.conf-low {
-    color: #dc2626;
-    font-weight: 700;
+  body { color: #ffffff; }
+  tbody tr:hover { background: #374151 !important; }
 }
 """
 
-
 # --------------------------------------------------
-# Gradio UI (UNCHANGED)
+# Gradio UI
 # --------------------------------------------------
 with gr.Blocks(css=custom_css) as demo:
+
     gr.Markdown("<h1 style='text-align:center;'>Response Generation AI Agent</h1>")
 
-    file_input = gr.File(label="Upload Question File")
+    with gr.Row():
+        file_input = gr.File(label="Upload Question File")
+        user_prompt = gr.Textbox(
+            label="Optional Answer Instructions",
+            placeholder="e.g. Answer in not more than two sentences, max 50 words, bullet points, etc."
+        )
+
     run_btn = gr.Button("Generate Responses")
 
     output_dataframe = gr.Dataframe(
@@ -370,12 +301,22 @@ with gr.Blocks(css=custom_css) as demo:
         wrap=True
     )
 
-    export_format = gr.Dropdown(["CSV", "PDF", "Word", "TXT"], value="CSV")
-    download_btn = gr.Button("Download Output")
-    download_file = gr.File()
+    with gr.Row():
+        export_format = gr.Dropdown(["CSV", "PDF", "Word", "TXT"], value="CSV")
+        download_btn = gr.Button("Download Output")
+        download_file = gr.File()
 
-    run_btn.click(process_file, inputs=file_input, outputs=output_dataframe)
-    download_btn.click(export_file, inputs=[output_dataframe, export_format], outputs=download_file)
+    run_btn.click(
+        process_file,
+        inputs=[file_input, user_prompt],
+        outputs=output_dataframe
+    )
+
+    download_btn.click(
+        export_file,
+        inputs=[output_dataframe, export_format],
+        outputs=download_file
+    )
 
 # --------------------------------------------------
 # Launch

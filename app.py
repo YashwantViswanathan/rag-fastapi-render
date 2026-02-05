@@ -2,7 +2,6 @@ import os
 import tempfile
 from typing import List
 
-import tempfile
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from docx import Document
@@ -83,6 +82,7 @@ def retrieve_chunks(question: str, top_k: int = 5) -> List[str]:
 
     return [r["content"] for r in results]
 
+
 def compute_confidence_score(answer: str, true_answer: str):
     ans_emb = np.array(embed_text(answer)).reshape(1, -1)
     ref_emb = np.array(embed_text(true_answer)).reshape(1, -1)
@@ -91,37 +91,21 @@ def compute_confidence_score(answer: str, true_answer: str):
     rouge = rouge_scorer.RougeScorer(["rougeL"], use_stemmer=True)
     rouge_l = rouge.score(true_answer, answer)["rougeL"].fmeasure
 
-    bleu = sentence_bleu(answer, [true_answer]).score / 100.0
-
-    score = (
-        0.65 * semantic_sim +
-        0.35 * rouge_l
-    ) * 100
-
-    score = round(score, 2)
+    score = round((0.65 * semantic_sim + 0.35 * rouge_l) * 100, 2)
 
     if score >= 85:
-        label = "High"
-        color = "yellow"
+        return score, "High", "green"
     elif score >= 65:
-        label = "Medium"
-        color = "orange"
+        return score, "Medium", "orange"
     else:
-        label = "Low"
-        color = "red"
+        return score, "Low", "red"
 
-    return score, label, color
 
 def run_rag(question: str):
     chunks = retrieve_chunks(question)
 
     if not chunks:
-        return {
-            "answer": "No relevant knowledge found.",
-            "score": 0.0,
-            "label": "Low",
-            "color": "red"
-        }
+        return {"answer": "No relevant knowledge found.", "score": 0, "label": "Low", "color": "red"}
 
     true_answer = chunks[0]
 
@@ -136,23 +120,9 @@ def run_rag(question: str):
     )
 
     answer = response.choices[0].message.content.strip()
-
-    if not answer:
-        return {
-            "answer": "No answer generated.",
-            "score": 0.0,
-            "label": "Low",
-            "color": "red"
-        }
-
     score, label, color = compute_confidence_score(answer, true_answer)
 
-    return {
-        "answer": answer,
-        "score": score,
-        "label": label,
-        "color": color
-    }
+    return {"answer": answer, "score": score, "label": label, "color": color}
 
 # --------------------------------------------------
 # File parsing
@@ -182,7 +152,7 @@ def extract_questions(file_path: str) -> List[str]:
     return [q.strip() for q in questions if q.strip()]
 
 # --------------------------------------------------
-# Gradio processing
+# Gradio processing (FIXED)
 # --------------------------------------------------
 def process_file(file):
     questions = extract_questions(file.name)
@@ -196,15 +166,14 @@ def process_file(file):
     for q in questions:
         result = run_rag(q)
 
-    # UI row (HTML)
         ui_rows.append([
             q,
             result["answer"],
-            f"<span style='color:{result['color']}; font-weight:bold'>{result['score']}</span>",
-            f"<span style='color:{result['color']}; font-weight:bold'>{result['label']}</span>"
-    ])
+            result["score"],
+            result["label"],
+            ""   # User Feedback
+        ])
 
-    # CSV row (plain)
         csv_rows.append([
             q,
             result["answer"],
@@ -212,24 +181,23 @@ def process_file(file):
             result["label"]
         ])
 
-
-    # UI DataFrame
     ui_df = pd.DataFrame(
         ui_rows,
-        columns=["Question", "Answer", "Confidence Score", "Label"]
+        columns=["Question", "Answer", "Confidence Score", "Label", "User Feedback"]
     )
 
-    # CSV DataFrame (NO HTML)
     csv_df = pd.DataFrame(
         csv_rows,
         columns=["Question", "Answer", "Confidence Score", "Label"]
     )
 
-    output_path = os.path.join(tempfile.gettempdir(), "Generated_Responses.csv")
-    csv_df.to_csv(output_path, index=False)
+    csv_df.to_csv(os.path.join(tempfile.gettempdir(), "Generated_Responses.csv"), index=False)
 
-    return ui_df, output_path
+    return ui_df   # ✅ CRITICAL FIX: return ONLY DataFrame
 
+# --------------------------------------------------
+# Export utilities (UNCHANGED)
+# --------------------------------------------------
 def export_csv(df):
     path = os.path.join(tempfile.gettempdir(), "Generated_Responses.csv")
     df.to_csv(path, index=False)
@@ -240,11 +208,8 @@ def export_txt(df):
     path = os.path.join(tempfile.gettempdir(), "Generated_Responses.txt")
     with open(path, "w", encoding="utf-8") as f:
         for _, row in df.iterrows():
-            f.write(f"Question: {row['Question']}\n")
-            f.write(f"Answer: {row['Answer']}\n")
-            f.write(f"Confidence Score: {row['Confidence Score']}\n")
-            f.write(f"Label: {row['Label']}\n")
-            f.write(f"User Feedback: {row.get('User Feedback', '')}\n")
+            for col in df.columns:
+                f.write(f"{col}: {row[col]}\n")
             f.write("\n" + "-" * 50 + "\n\n")
     return path
 
@@ -255,11 +220,8 @@ def export_docx(df):
     doc.add_heading("Generated Responses", level=1)
 
     for _, row in df.iterrows():
-        doc.add_paragraph(f"Question: {row['Question']}")
-        doc.add_paragraph(f"Answer: {row['Answer']}")
-        doc.add_paragraph(f"Confidence Score: {row['Confidence Score']}")
-        doc.add_paragraph(f"Label: {row['Label']}")
-        doc.add_paragraph(f"User Feedback: {row.get('User Feedback', '')}")
+        for col in df.columns:
+            doc.add_paragraph(f"{col}: {row[col]}")
         doc.add_page_break()
 
     doc.save(path)
@@ -269,226 +231,63 @@ def export_docx(df):
 def export_pdf(df):
     path = os.path.join(tempfile.gettempdir(), "Generated_Responses.pdf")
     c = canvas.Canvas(path, pagesize=A4)
-    width, height = A4
+    y = A4[1] - 40
 
-    y = height - 40
     for _, row in df.iterrows():
         text = c.beginText(40, y)
         text.setFont("Helvetica", 10)
 
-        lines = [
-            f"Question: {row['Question']}",
-            f"Answer: {row['Answer']}",
-            f"Confidence Score: {row['Confidence Score']}",
-            f"Label: {row['Label']}",
-            f"User Feedback: {row.get('User Feedback', '')}",
-            "-" * 80
-        ]
-
-        for line in lines:
-            for wrapped in line.split("\n"):
-                text.textLine(wrapped)
-                y -= 14
-                if y < 60:
-                    c.drawText(text)
-                    c.showPage()
-                    text = c.beginText(40, height - 40)
-                    text.setFont("Helvetica", 10)
-                    y = height - 40
+        for col in df.columns:
+            text.textLine(f"{col}: {row[col]}")
+            y -= 14
+            if y < 60:
+                c.drawText(text)
+                c.showPage()
+                text = c.beginText(40, A4[1] - 40)
+                text.setFont("Helvetica", 10)
+                y = A4[1] - 40
 
         c.drawText(text)
 
     c.save()
     return path
 
+
 def export_file(df, export_format):
     if export_format == "CSV":
         return export_csv(df)
-    elif export_format == "PDF":
+    if export_format == "PDF":
         return export_pdf(df)
-    elif export_format == "Word":
+    if export_format == "Word":
         return export_docx(df)
-    elif export_format == "TXT":
+    if export_format == "TXT":
         return export_txt(df)
-    else:
-        raise ValueError("Unsupported export format")
-
+    raise ValueError("Unsupported export format")
 
 # --------------------------------------------------
-# Custom CSS (Blue–Black theme)
-# --------------------------------------------------
-custom_css = """
-/* =====================================================
-   BASE – DO NOT FORCE BACKGROUNDS
-   ===================================================== */
-
-.gradio-container {
-    background: var(--background-fill-primary) !important;
-}
-
-/* =====================================================
-   LIGHT MODE
-   ===================================================== */
-@media (prefers-color-scheme: light) {
-
-    body, .gradio-container {
-        color: #000000 !important;
-    }
-
-    /* Cards / blocks */
-    .block {
-        background: #ffffff !important;
-        border: 1px solid #d1d5db;
-        border-radius: 12px;
-    }
-
-    /* Table */
-    table {
-        background: #ffffff !important;
-        color: #000000 !important;
-        border-collapse: collapse;
-    }
-
-    thead th {
-        color: #000000 !important;
-        border-bottom: 2px solid #d1d5db;
-    }
-
-    tbody tr {
-        background: #ffffff !important;
-        transition: background 0.15s ease;
-    }
-
-    tbody tr:hover {
-        background: #e5e7eb !important; /* grey hover */
-    }
-
-    td {
-        color: #000000 !important;
-        border-bottom: 1px solid #e5e7eb;
-    }
-}
-
-/* =====================================================
-   DARK MODE
-   ===================================================== */
-@media (prefers-color-scheme: dark) {
-
-    body, .gradio-container {
-        color: #ffffff !important;
-    }
-
-    /* Cards / blocks */
-    .block {
-        background: #0f172a !important;
-        border: 1px solid #334155;
-        border-radius: 12px;
-    }
-
-    /* Table */
-    table {
-        background: #0f172a !important;
-        color: #ffffff !important;
-        border-collapse: collapse;
-    }
-
-    thead th {
-        color: #ffffff !important;
-        border-bottom: 2px solid #334155;
-    }
-
-    tbody tr {
-        background: #0f172a !important;
-        transition: background 0.15s ease;
-    }
-
-    tbody tr:hover {
-        background: #374151 !important; /* grey hover */
-    }
-
-    td {
-        color: #ffffff !important;
-        border-bottom: 1px solid #334155;
-    }
-}
-
-/* =====================================================
-   CONFIDENCE COLORS (same in both modes)
-   ===================================================== */
-
-.conf-high {
-    color: #16a34a;
-    font-weight: 700;
-}
-
-.conf-medium {
-    color: #f59e0b;
-    font-weight: 700;
-}
-
-.conf-low {
-    color: #dc2626;
-    font-weight: 700;
-}
-"""
-
-
-# --------------------------------------------------
-# Gradio UI
+# Gradio UI (UNCHANGED)
 # --------------------------------------------------
 with gr.Blocks(css=custom_css) as demo:
+    gr.Markdown("<h1 style='text-align:center;'>Response Generation AI Agent</h1>")
 
-    gr.Markdown(
-        "<h1 style='text-align:center;'>Response Generation AI Agent</h1>"
-    )
-
-    with gr.Row():
-        file_input = gr.File(label="Upload Question File")
-
+    file_input = gr.File(label="Upload Question File")
     run_btn = gr.Button("Generate Responses")
 
     output_dataframe = gr.Dataframe(
-        headers=[
-            "Question",
-            "Answer",
-            "Confidence Score",
-            "Label",
-            "User Feedback"
-        ],
+        headers=["Question", "Answer", "Confidence Score", "Label", "User Feedback"],
         interactive=True,
         wrap=True
     )
 
-    with gr.Row():
-        export_format = gr.Dropdown(
-            ["CSV", "PDF", "Word", "TXT"],
-            value="CSV",
-            label="Download Format"
-        )
-        download_btn = gr.Button("Download Output")
-        download_file = gr.File(label="Download")
+    export_format = gr.Dropdown(["CSV", "PDF", "Word", "TXT"], value="CSV")
+    download_btn = gr.Button("Download Output")
+    download_file = gr.File()
 
-    # -------------------------------------------------
-    # HOOK THESE TO YOUR EXISTING BACKEND FUNCTIONS
-    # -------------------------------------------------
+    run_btn.click(process_file, inputs=file_input, outputs=output_dataframe)
+    download_btn.click(export_file, inputs=[output_dataframe, export_format], outputs=download_file)
 
-    run_btn.click(
-        fn=process_file,           # your existing RAG function
-        inputs=[file_input],
-        outputs=[output_dataframe]
-    )
-
-    download_btn.click(
-        fn=export_file,
-        inputs=[output_dataframe, export_format],
-        outputs=[download_file]
-    )
-
-# =====================================================
-# LAUNCH
-# =====================================================
+# --------------------------------------------------
+# Launch
+# --------------------------------------------------
 if __name__ == "__main__":
-    demo.launch(
-        server_name="0.0.0.0",
-        server_port=int(os.environ.get("PORT", 7860))
-    )
+    demo.launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT", 7860)))

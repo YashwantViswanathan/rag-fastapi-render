@@ -38,3 +38,4 @@ scikit-learn
 rouge-score
 sacrebleu
 gradio
+reportlab

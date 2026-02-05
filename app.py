@@ -2,6 +2,11 @@ import os
 import tempfile
 from typing import List
 
+import tempfile
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas
+from docx import Document
+
 import gradio as gr
 import pandas as pd
 import numpy as np
@@ -90,8 +95,7 @@ def compute_confidence_score(answer: str, true_answer: str):
 
     score = (
         0.65 * semantic_sim +
-        0.25 * rouge_l +
-        0.10 * bleu
+        0.35 * rouge_l
     ) * 100
 
     score = round(score, 2)
@@ -226,6 +230,90 @@ def process_file(file):
 
     return ui_df, output_path
 
+def export_csv(df):
+    path = os.path.join(tempfile.gettempdir(), "Generated_Responses.csv")
+    df.to_csv(path, index=False)
+    return path
+
+
+def export_txt(df):
+    path = os.path.join(tempfile.gettempdir(), "Generated_Responses.txt")
+    with open(path, "w", encoding="utf-8") as f:
+        for _, row in df.iterrows():
+            f.write(f"Question: {row['Question']}\n")
+            f.write(f"Answer: {row['Answer']}\n")
+            f.write(f"Confidence Score: {row['Confidence Score']}\n")
+            f.write(f"Label: {row['Label']}\n")
+            f.write(f"User Feedback: {row.get('User Feedback', '')}\n")
+            f.write("\n" + "-" * 50 + "\n\n")
+    return path
+
+
+def export_docx(df):
+    path = os.path.join(tempfile.gettempdir(), "Generated_Responses.docx")
+    doc = Document()
+    doc.add_heading("Generated Responses", level=1)
+
+    for _, row in df.iterrows():
+        doc.add_paragraph(f"Question: {row['Question']}")
+        doc.add_paragraph(f"Answer: {row['Answer']}")
+        doc.add_paragraph(f"Confidence Score: {row['Confidence Score']}")
+        doc.add_paragraph(f"Label: {row['Label']}")
+        doc.add_paragraph(f"User Feedback: {row.get('User Feedback', '')}")
+        doc.add_page_break()
+
+    doc.save(path)
+    return path
+
+
+def export_pdf(df):
+    path = os.path.join(tempfile.gettempdir(), "Generated_Responses.pdf")
+    c = canvas.Canvas(path, pagesize=A4)
+    width, height = A4
+
+    y = height - 40
+    for _, row in df.iterrows():
+        text = c.beginText(40, y)
+        text.setFont("Helvetica", 10)
+
+        lines = [
+            f"Question: {row['Question']}",
+            f"Answer: {row['Answer']}",
+            f"Confidence Score: {row['Confidence Score']}",
+            f"Label: {row['Label']}",
+            f"User Feedback: {row.get('User Feedback', '')}",
+            "-" * 80
+        ]
+
+        for line in lines:
+            for wrapped in line.split("\n"):
+                text.textLine(wrapped)
+                y -= 14
+                if y < 60:
+                    c.drawText(text)
+                    c.showPage()
+                    text = c.beginText(40, height - 40)
+                    text.setFont("Helvetica", 10)
+                    y = height - 40
+
+        c.drawText(text)
+
+    c.save()
+    return path
+
+def export_file(df, export_format):
+    if export_format == "CSV":
+        return export_csv(df)
+    elif export_format == "PDF":
+        return export_pdf(df)
+    elif export_format == "Word":
+        return export_docx(df)
+    elif export_format == "TXT":
+        return export_txt(df)
+    else:
+        raise ValueError("Unsupported export format")
+
+
 # --------------------------------------------------
 # Custom CSS (Blue–Black theme)
 # --------------------------------------------------
@@ -349,32 +437,58 @@ custom_css = """
 # Gradio UI
 # --------------------------------------------------
 with gr.Blocks(css=custom_css) as demo:
-    gr.Markdown(
-        "<h1 style='text-align: center; margin-bottom: 0.5rem;'>"
-        "RFP Response AI Agent"
-        "</h1>"
-    )
 
+    gr.Markdown(
+        "<h1 style='text-align:center;'>Response Generation AI Agent</h1>"
+    )
 
     with gr.Row():
         file_input = gr.File(label="Upload Question File")
-        run_btn = gr.Button("Run RAG")
 
-    output_table = gr.Dataframe(
-        headers=["Question", "Answer", "Confidence Score", "Label"],
-        datatype=["str", "str", "html", "html"],
+    run_btn = gr.Button("Generate Responses")
+
+    output_dataframe = gr.Dataframe(
+        headers=[
+            "Question",
+            "Answer",
+            "Confidence Score",
+            "Label",
+            "User Feedback"
+        ],
+        interactive=True,
         wrap=True
     )
 
-    csv_output = gr.File(label="Download Output CSV")
+    with gr.Row():
+        export_format = gr.Dropdown(
+            ["CSV", "PDF", "Word", "TXT"],
+            value="CSV",
+            label="Download Format"
+        )
+        download_btn = gr.Button("Download Output")
+        download_file = gr.File(label="Download")
+
+    # -------------------------------------------------
+    # HOOK THESE TO YOUR EXISTING BACKEND FUNCTIONS
+    # -------------------------------------------------
 
     run_btn.click(
-        fn=process_file,
-        inputs=file_input,
-        outputs=[output_table, csv_output]
+        fn=process_file,           # your existing RAG function
+        inputs=[file_input],
+        outputs=[output_dataframe]
     )
 
+    download_btn.click(
+        fn=export_file,
+        inputs=[output_dataframe, export_format],
+        outputs=[download_file]
+    )
+
+# =====================================================
+# LAUNCH
+# =====================================================
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 7860))
-    demo.queue()
-    demo.launch(server_name="0.0.0.0", server_port=port)
+    demo.launch(
+        server_name="0.0.0.0",
+        server_port=int(os.environ.get("PORT", 7860))
+    )

@@ -264,6 +264,97 @@ def export_file(df, export_format):
         return export_txt(df)
     raise ValueError("Unsupported export format")
 
+custom_css = """
+.gradio-container {
+    background: var(--background-fill-primary) !important;
+}
+
+/* ================= LIGHT MODE ================= */
+@media (prefers-color-scheme: light) {
+
+    body, .gradio-container {
+        color: #000000 !important;
+    }
+
+    .block {
+        background: #ffffff !important;
+        border: 1px solid #d1d5db;
+        border-radius: 12px;
+    }
+
+    table {
+        background: #ffffff !important;
+        color: #000000 !important;
+        border-collapse: collapse;
+    }
+
+    thead th {
+        color: #000000 !important;
+        border-bottom: 2px solid #d1d5db;
+    }
+
+    tbody tr:hover {
+        background: #e5e7eb !important; /* grey hover */
+    }
+
+    td {
+        color: #000000 !important;
+        border-bottom: 1px solid #e5e7eb;
+    }
+}
+
+/* ================= DARK MODE ================= */
+@media (prefers-color-scheme: dark) {
+
+    body, .gradio-container {
+        color: #ffffff !important;
+    }
+
+    .block {
+        background: #0f172a !important;
+        border: 1px solid #334155;
+        border-radius: 12px;
+    }
+
+    table {
+        background: #0f172a !important;
+        color: #ffffff !important;
+        border-collapse: collapse;
+    }
+
+    thead th {
+        color: #ffffff !important;
+        border-bottom: 2px solid #334155;
+    }
+
+    tbody tr:hover {
+        background: #374151 !important; /* grey hover */
+    }
+
+    td {
+        color: #ffffff !important;
+        border-bottom: 1px solid #334155;
+    }
+}
+
+/* ================= CONFIDENCE COLORS ================= */
+.conf-high {
+    color: #16a34a;
+    font-weight: 700;
+}
+
+.conf-medium {
+    color: #f59e0b;
+    font-weight: 700;
+}
+
+.conf-low {
+    color: #dc2626;
+    font-weight: 700;
+}
+"""
+
+
 # --------------------------------------------------
 # Gradio UI (UNCHANGED)
 # --------------------------------------------------
